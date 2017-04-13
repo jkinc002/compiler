@@ -3,17 +3,54 @@ import syntaxtree.*;
 import java.util.*;
 import java.util.Stack;
 import java.util.HashMap;
+import java.util.Vector;
 
 public class TypecheckVisitor<R,A> extends GJDepthFirst<R,A> {
+	private class VarOrMethod {
+		String type;
+		Vector<String> params;
+		boolean isMethod;
+
+		VarOrMethod(String t, Vector<String> p, boolean isMeth){
+			type = t;
+			params = p;
+			isMethod = isMeth;
+		}
+	}
      Stack<HashMap<String,String>> symbolTable = null;
 	 HashMap<String,String> inheritanceMap= null;
-     HashMap<String,HashMap<String,String>> fieldMap = null;
+     HashMap<String,HashMap<String,VarOrMethod>> fieldMap = null;
+
+	public VarOrMethod newVar(String t){
+		return new VarOrMethod(t, new Vector<String>(), false);
+	}
+	public VarOrMethod newMethod(String t, Vector<String> p){
+		return new VarOrMethod(t, p, true);
+	}
 
 	 public void printMap(Map<String,String> m){
 		for(Map.Entry<String,String> entry : m.entrySet()) {
 			System.out.println("Item: " + entry.getKey() + " Type: " + entry.getValue());
 			}
 			System.out.println(m.size());
+	 }
+	 public void printMethodParams(Vector<String> v){
+		for(String s : v){
+			System.out.println("\t\t" + s + ", ");
+		}
+	 }
+	 public void printFieldMap()
+	 {
+	 	for (Map.Entry<String,HashMap<String,VarOrMethod>> classEntry : fieldMap.entrySet())
+		{
+			System.out.println("Class " + classEntry.getKey() + ": ");
+			for (Map.Entry<String,VarOrMethod> fieldEntry: classEntry.getValue().entrySet())
+			{
+				VarOrMethod varmeth = fieldEntry.getValue();
+				System.out.println("\t name: " + fieldEntry.getKey() + ", type: " + varmeth.type + ", ismethod: " + varmeth.isMethod);
+				printMethodParams(varmeth.params);
+			}
+		}
 	 }
 	
 	 private String getTypeString(Type type){
@@ -44,7 +81,7 @@ public class TypecheckVisitor<R,A> extends GJDepthFirst<R,A> {
      public R visit(Goal n, A argu){
 	   symbolTable = new Stack<HashMap<String,String>>();
 	   inheritanceMap = new HashMap<String,String>();
-   		fieldMap = new HashMap<String,HashMap<String,String>>();
+   		fieldMap = new HashMap<String,HashMap<String,VarOrMethod>>();
 	   // FIXME: make sure parent exists
 	   // FIXME: make sure parent does not ultimately inherit the child (inheritance loop)
 	   inheritanceMap.put("Object", "Object");
@@ -56,10 +93,10 @@ public class TypecheckVisitor<R,A> extends GJDepthFirst<R,A> {
 	   classMap.put(n.f0.f1.f0.tokenImage,"Class");
 	   inheritanceMap.put(n.f0.f1.f0.tokenImage, "Object");
 	   //put main class in field map
-	   fieldMap.put(n.f0.f1.f0.tokenImage,new HashMap<String,String>());
+	   fieldMap.put(n.f0.f1.f0.tokenImage,new HashMap<String,VarOrMethod>());
 	   //build field map
 	   for(int i = 0; i < n.f1.size(); ++i){
-		 HashMap<String,String> currFields = new HashMap<String,String>();
+		 HashMap<String,VarOrMethod> currFields = new HashMap<String,VarOrMethod>();
 	     TypeDeclaration temp = (TypeDeclaration) n.f1.elementAt(i);
 	   		String tokenImage;
 			String parent;
@@ -90,15 +127,28 @@ public class TypecheckVisitor<R,A> extends GJDepthFirst<R,A> {
 			for (int j = 0; j < varFields.size(); ++j)
 			{
 				VarDeclaration varNode = (VarDeclaration)varFields.elementAt(j);
-			    currFields.put(varNode.f1.f0.tokenImage, getTypeString(varNode.f0));
+			    currFields.put(varNode.f1.f0.tokenImage, newVar(getTypeString(varNode.f0)));
 			}
 			//Loop adds method declarations to field map
 		    for (int k = 0; k < methFields.size(); ++k)
 			{
 				MethodDeclaration methNode = (MethodDeclaration)methFields.elementAt(k);
-				currFields.put(methNode.f2.f0.tokenImage,getTypeString(methNode.f1));
+				String methodType = getTypeString(methNode.f1);
+				Vector<String> methodParams = new Vector<String>();
+				if(methNode.f4.present()){
+				    FormalParameterList paramListNode = (FormalParameterList)methNode.f4.node;
+					methodParams.add(getTypeString(paramListNode.f0.f0));
+					
+					for(int l = 0; l < paramListNode.f1.size(); ++l){
+						FormalParameterRest paramNode = (FormalParameterRest)paramListNode.f1.elementAt(l);
+						methodParams.add(getTypeString(paramNode.f1.f0));
+					}
+				}
+				currFields.put(methNode.f2.f0.tokenImage,newMethod(methodType, methodParams));
 			}
-			printMap(currFields);
+			//printMap(currFields);
+			fieldMap.put(tokenImage,currFields);
+			printFieldMap();
 	   }
 	   symbolTable.push(classMap);
 	   n.f0.accept(this, argu);
@@ -131,7 +181,7 @@ public class TypecheckVisitor<R,A> extends GJDepthFirst<R,A> {
 		Map<String, String> scope = new HashMap<String,String>();
 		scope.put(n.f11.f0.tokenImage, "String[]");
 		addDeclarations(scope, n.f14);
-		printMap(scope);
+		//printMap(scope);
 
 
 		R _ret=null;
