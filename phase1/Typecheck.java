@@ -16,7 +16,7 @@ class Typecheck {
 	}
 	if(g == null) return;
 
-	TypecheckVisitor<Boolean,Object> mgj = new TypecheckVisitor<Boolean,Object>();
+	TypecheckVisitor<String, Boolean> mgj = new TypecheckVisitor<String,Boolean>();
 	
 	mgj.visit(g,null);
 	

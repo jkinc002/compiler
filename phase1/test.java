@@ -1,6 +1,8 @@
 class Main {
 	public static void main(String[] a){
 		int k;
+		int[] j;
+		int q;
 		System.out.println(new A().run());
 	}
 }
@@ -14,3 +16,4 @@ class A {
 		return x;
 	}
 }
+
