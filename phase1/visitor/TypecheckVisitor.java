@@ -5,7 +5,18 @@ import java.util.Stack;
 import java.util.HashMap;
 import java.util.Vector;
 
-public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
+public class TypecheckVisitor extends GJDepthFirst<String, String> {
+
+	private class Pair {
+		Boolean first;
+		String second;
+
+		Pair(Boolean b, String s){
+			first = b;
+			second = s;
+		}
+	}
+
 	private class VarOrMethod {
 		String type;
 		Vector<String> params;
@@ -20,6 +31,8 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
      Stack<HashMap<String,String>> symbolTable = null;
 	 HashMap<String,String> inheritanceMap= null;
      HashMap<String,HashMap<String,VarOrMethod>> fieldMap = null;
+
+	 Vector<String> currentParams = null;
 
 	public VarOrMethod newVar(String t){
 		return new VarOrMethod(t, new Vector<String>(), false);
@@ -80,6 +93,42 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
 		
 	}
 
+	private boolean isMethodOfClass(String methodName, String className)
+	{
+		if(fieldMap.get(className).containsKey(methodName)){
+			return fieldMap.get(className).get(methodName).isMethod;
+		}
+		return false;
+	}
+
+	private Pair isMethodOfInheritance(String classType, String methodName, Vector<String> args)
+	{
+		String currClass = classType;
+		while(!currClass.equals("Object")){
+			if(isMethodOfClass(methodName, currClass)){
+				Vector<String> paramTypes = fieldMap.get(currClass).get(methodName).params;
+				if(paramTypes.size() != args.size()){
+					//ERROR: same method but different params
+					System.err.format("Method %s exists in class %s but uses different parameters%n", methodName, currClass);
+					System.exit(1);
+				}
+				for(int i = 0; i < paramTypes.size(); ++i){
+					if(!paramTypes.get(i).equals(args.get(i))){
+						//ERROR: same method but different params
+						System.err.format("Method %s exists in class %s but uses different parameters%n", methodName, currClass);
+						System.exit(1);
+					}
+				}
+				
+				return new Pair(true,fieldMap.get(currClass).get(methodName).type);
+			}
+			else{
+				currClass = inheritanceMap.get(currClass);
+			}
+		}
+		return new Pair(false,"");
+	}
+
 	private void addVarDeclarations (Map<String,String> m, NodeListOptional nodeList){
 		for (int j = 0; j < nodeList.size(); ++j)
 		{
@@ -101,7 +150,7 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
 		}
 	}
 
-     public R visit(Goal n, A argu){
+     public String visit(Goal n, String argu){
 	   symbolTable = new Stack<HashMap<String,String>>();
 	   inheritanceMap = new HashMap<String,String>();
    		fieldMap = new HashMap<String,HashMap<String,VarOrMethod>>();
@@ -109,7 +158,7 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
 	   // FIXME: make sure parent does not ultimately inherit the child (inheritance loop)
 	   inheritanceMap.put("Object", "Object");
 
-       R _ret = null;
+       String _ret = null;
 	   HashMap<String,String> classMap = new HashMap<String,String>();
 
 	   // Our main class
@@ -206,13 +255,13 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     * f17 -> "}"
     */
 
-	public R visit(MainClass n, A argu){
+	public String visit(MainClass n, String argu){
 		HashMap<String, String> scope = new HashMap<String,String>();
+	    symbolTable.push(scope);	
 		scope.put(n.f11.f0.tokenImage, "String[]");
 		addVarDeclarations(scope, n.f14);
-	    symbolTable.push(scope);	
 
-		R _ret=null;
+		String _ret=null;
 		n.f0.accept(this, argu);
 		n.f1.accept(this, argu);
 		n.f2.accept(this, argu);
@@ -244,14 +293,14 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     * f4 -> ( MethodDeclaration() )*
     * f5 -> "}"
     */
-	public R visit(ClassDeclaration n, A argu) {
+	public String visit(ClassDeclaration n, String argu) {
 		HashMap<String, String> scope = new HashMap<String,String>();
+		symbolTable.push(scope);
 		addVarDeclarations(scope, n.f3);
 		addMethodDeclarations(scope, n.f4);
 		//printMap(scope);
-		symbolTable.push(scope);
 
-      R _ret=null;
+      String _ret=null;
       n.f0.accept(this, argu);
       n.f1.accept(this, argu);
       n.f2.accept(this, argu);
@@ -273,14 +322,14 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     * f6 -> ( MethodDeclaration() )*
     * f7 -> "}"
     */
-   public R visit(ClassExtendsDeclaration n, A argu) {
+   public String visit(ClassExtendsDeclaration n, String argu) {
 		HashMap<String, String> scope = new HashMap<String,String>();
+		symbolTable.push(scope);
 		addVarDeclarations(scope, n.f5);
 		addMethodDeclarations(scope, n.f6);
 		//printMap(scope);
-		symbolTable.push(scope);
 
-      R _ret=null;
+      String _ret=null;
       n.f0.accept(this, argu);
       n.f1.accept(this, argu);
       n.f2.accept(this, argu);
@@ -300,8 +349,9 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     * f1 -> Identifier()
     * f2 -> ";"
     */
-   public R visit(VarDeclaration n, A argu) {
-      R _ret=null;
+	//DONE HERE
+   public String visit(VarDeclaration n, String argu) {
+      String _ret=null;
       n.f0.accept(this, argu);
       n.f1.accept(this, argu);
       n.f2.accept(this, argu);
@@ -323,24 +373,31 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     * f11 -> ";"
     * f12 -> "}"
     */
-   public R visit(MethodDeclaration n, A argu) {
+   public String visit(MethodDeclaration n, String argu) {
 		HashMap<String, String> scope = new HashMap<String,String>();
-		addVarDeclarations(scope, n.f7);
+		symbolTable.push(scope);
 
+		//GOAL: check for duplicate parameter names
 		if(n.f4.present()){
 			FormalParameterList paramListNode = (FormalParameterList)n.f4.node;
 			scope.put(paramListNode.f0.f1.f0.tokenImage, getTypeString(paramListNode.f0.f0));
 			
 			for(int l = 0; l < paramListNode.f1.size(); ++l){
 				FormalParameterRest paramNode = (FormalParameterRest)paramListNode.f1.elementAt(l);
+				if(scope.containsKey(paramNode.f1.f1.f0.tokenImage)){
+					//ERROR: duplicate param names found
+					System.out.format("Duplicate parameters of name %s found%n", paramNode.f1.f1.f0.tokenImage);
+					System.exit(1);
+				}
 				scope.put(paramNode.f1.f1.f0.tokenImage, getTypeString(paramNode.f1.f0));
 			}
 			
 		}
+		//AddVar checks for duplicate declarations in the same scope
+		addVarDeclarations(scope, n.f7);
 
-		symbolTable.push(scope);
 
-      R _ret=null;
+      String _ret=null;
       n.f0.accept(this, argu);
       n.f1.accept(this, argu);
       n.f2.accept(this, argu);
@@ -363,8 +420,8 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     * f0 -> FormalParameter()
     * f1 -> ( FormalParameterRest() )*
     */
-   public R visit(FormalParameterList n, A argu) {
-      R _ret=null;
+   public String visit(FormalParameterList n, String argu) {
+      String _ret=null;
       n.f0.accept(this, argu);
       n.f1.accept(this, argu);
       return _ret;
@@ -374,8 +431,8 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     * f0 -> Type()
     * f1 -> Identifier()
     */
-   public R visit(FormalParameter n, A argu) {
-      R _ret=null;
+   public String visit(FormalParameter n, String argu) {
+      String _ret=null;
       n.f0.accept(this, argu);
       n.f1.accept(this, argu);
       return _ret;
@@ -385,8 +442,8 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     * f0 -> ","
     * f1 -> FormalParameter()
     */
-   public R visit(FormalParameterRest n, A argu) {
-      R _ret=null;
+   public String visit(FormalParameterRest n, String argu) {
+      String _ret=null;
       n.f0.accept(this, argu);
       n.f1.accept(this, argu);
       return _ret;
@@ -398,8 +455,8 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     *       | IntegerType()
     *       | Identifier()
     */
-   public R visit(Type n, A argu) {
-      R _ret=null;
+   public String visit(Type n, String argu) {
+      String _ret=null;
       n.f0.accept(this, argu);
       return _ret;
    }
@@ -409,8 +466,8 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     * f1 -> "["
     * f2 -> "]"
     */
-   public R visit(ArrayType n, A argu) {
-      R _ret=null;
+   public String visit(ArrayType n, String argu) {
+      String _ret=null;
       n.f0.accept(this, argu);
       n.f1.accept(this, argu);
       n.f2.accept(this, argu);
@@ -420,8 +477,8 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
    /**
     * f0 -> "boolean"
     */
-   public R visit(BooleanType n, A argu) {
-      R _ret=null;
+   public String visit(BooleanType n, String argu) {
+      String _ret=null;
       n.f0.accept(this, argu);
       return _ret;
    }
@@ -429,8 +486,8 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
    /**
     * f0 -> "int"
     */
-   public R visit(IntegerType n, A argu) {
-      R _ret=null;
+   public String visit(IntegerType n, String argu) {
+      String _ret=null;
       n.f0.accept(this, argu);
       return _ret;
    }
@@ -443,8 +500,8 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     *       | WhileStatement()
     *       | PrintStatement()
     */
-   public R visit(Statement n, A argu) {
-      R _ret=null;
+   public String visit(Statement n, String argu) {
+      String _ret=null;
       n.f0.accept(this, argu);
       return _ret;
    }
@@ -454,8 +511,8 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     * f1 -> ( Statement() )*
     * f2 -> "}"
     */
-   public R visit(Block n, A argu) {
-      R _ret=null;
+   public String visit(Block n, String argu) {
+      String _ret=null;
       n.f0.accept(this, argu);
       n.f1.accept(this, argu);
       n.f2.accept(this, argu);
@@ -468,11 +525,19 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     * f2 -> Expression()
     * f3 -> ";"
     */
-   public R visit(AssignmentStatement n, A argu) {
-      R _ret=null;
-      n.f0.accept(this, argu);
+   public String visit(AssignmentStatement n, String argu) {
+      String _ret=null;
+      String lhsType = getTypeOfId(n.f0.accept(this, argu));
+	  if(lhsType.equals("")){
+	  	System.out.format("Identifier %s not previously declared in a reachable scope%n", n.f0.f0.tokenImage);
+		System.exit(1);
+	  }
       n.f1.accept(this, argu);
-      R rhsType = n.f2.accept(this, argu);
+      String rhsType = n.f2.accept(this, argu);
+	  if(!lhsType.equals(rhsType)){
+	  	System.out.format("Assignment of incompatible types: Expected %s, got %s%n", lhsType, rhsType);
+		System.exit(1);
+		}
       n.f3.accept(this, argu);
       return _ret;
    }
@@ -486,14 +551,32 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     * f5 -> Expression()
     * f6 -> ";"
     */
-   public R visit(ArrayAssignmentStatement n, A argu) {
-      R _ret=null;
-      n.f0.accept(this, argu);
+   public String visit(ArrayAssignmentStatement n, String argu) {
+   //GOAL: Identifier must be of type "INTEGER[]"
+   //	 : Expression inside [] must be of type "INTEGER"
+   //	 : Expression on RHS must be of type "INTEGER"
+      String _ret=null;
+      String identType = getTypeOfId(n.f0.accept(this, argu));
+	  if(!identType.equals("Integer[]")){
+		//ERROR: Identifier was not of type INTEGER[]
+		System.out.format("Identifier %n is not of type INTEGER_ARRAY%n", n.f0.f0.tokenImage);
+		System.exit(1);
+	  }
       n.f1.accept(this, argu);
-      n.f2.accept(this, argu);
+      String expression1 = n.f2.accept(this, argu);
+	  if(!expression1.equals("Integer")){
+		//ERROR: expression1 was not of type Integer
+		System.out.format("Array index must be of type INT%n");
+		System.exit(1);
+	  }
       n.f3.accept(this, argu);
       n.f4.accept(this, argu);
-      n.f5.accept(this, argu);
+      String expression2 = n.f5.accept(this, argu);
+	  if(!expression2.equals("Integer")){
+		//ERROR: expression2 was not of type Integer
+		System.out.format("Assignement of Array at index must be of type INT%n");
+		System.exit(1);
+	  }
       n.f6.accept(this, argu);
       return _ret;
    }
@@ -507,11 +590,18 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     * f5 -> "else"
     * f6 -> Statement()
     */
-   public R visit(IfStatement n, A argu) {
-      R _ret=null;
+   public String visit(IfStatement n, String argu) {
+   //GOAL:	expression is of type "Boolean"
+   //	 :	Any Statement errors should resolve on their own, not here
+      String _ret=null;
       n.f0.accept(this, argu);
       n.f1.accept(this, argu);
-      n.f2.accept(this, argu);
+      String expressionType = n.f2.accept(this, argu);
+	  if(!expressionType.equals("Boolean")){
+	  	//ERROR: expression is not of type "Boolean"
+		System.out.println("If condition is not of type Boolean");
+		System.exit(1);
+	  }
       n.f3.accept(this, argu);
       n.f4.accept(this, argu);
       n.f5.accept(this, argu);
@@ -526,11 +616,18 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     * f3 -> ")"
     * f4 -> Statement()
     */
-   public R visit(WhileStatement n, A argu) {
-      R _ret=null;
+   public String visit(WhileStatement n, String argu) {
+   //GOAL:	expression is of type "Boolean"
+   //	 :	Any Statement errors should resolve on their own, not here
+      String _ret=null;
       n.f0.accept(this, argu);
       n.f1.accept(this, argu);
-      n.f2.accept(this, argu);
+      String expressionType = n.f2.accept(this, argu);
+	  if(!expressionType.equals("Boolean")){
+	  	//ERROR: expression is not of type "Boolean"
+		System.out.println("If condition is not of type Boolean");
+		System.exit(1);
+	  }
       n.f3.accept(this, argu);
       n.f4.accept(this, argu);
       return _ret;
@@ -543,11 +640,17 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     * f3 -> ")"
     * f4 -> ";"
     */
-   public R visit(PrintStatement n, A argu) {
-      R _ret=null;
+   public String visit(PrintStatement n, String argu) {
+   //GOAL:	expression must be of type Integer
+      String _ret=null;
       n.f0.accept(this, argu);
       n.f1.accept(this, argu);
-      n.f2.accept(this, argu);
+      String expressionType = n.f2.accept(this, argu);
+	  if(!expressionType.equals("Integer")){
+		//ERROR: expression is not of type "Integer"
+		System.out.println("If condition is not of type Integer");
+		System.exit(1);
+	  }
       n.f3.accept(this, argu);
       n.f4.accept(this, argu);
       return _ret;
@@ -564,17 +667,17 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     *       | MessageSend()
     *       | PrimaryExpression()
     */
-   public R visit(Expression n, A argu) {
-      R _ret=null;
+   public String visit(Expression n, String argu) {
+      String _ret=null;
       _ret = n.f0.accept(this, argu);
       return _ret;
    }
 
-   private void typeCheckBinExpr(Node n0,Node n1,Node n2, A argu, R t, String errmsg)
+   private void typeCheckBinExpr(Node n0,Node n1,Node n2, String argu, String t, String errmsg)
    {
-       R lhsType = n0.accept(this, argu);
+       String lhsType = n0.accept(this, argu);
 	   n1.accept(this, argu);
-       R rhsType = n2.accept(this, argu);
+       String rhsType = n2.accept(this, argu);
 
 	   if (!lhsType.equals(t) || !rhsType.equals(t))
 	   {
@@ -589,9 +692,9 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     * f1 -> "&&"
     * f2 -> PrimaryExpression()
     */
-   public R visit(AndExpression n, A argu) {
-	  typeCheckBinExpr(n.f0,n.f1,n.f2, argu, (R) "Boolean", "Expected boolean types for operator &&");
-	  return (R)"Boolean";
+   public String visit(AndExpression n, String argu) {
+	  typeCheckBinExpr(n.f0,n.f1,n.f2, argu,  "Boolean", "Expected boolean types for operator &&");
+	  return "Boolean";
    }
 
    /**
@@ -599,9 +702,9 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     * f1 -> "<"
     * f2 -> PrimaryExpression()
     */
-   public R visit(CompareExpression n, A argu) {
-      typeCheckBinExpr(n.f0,n.f1,n.f2, argu, (R) "Integer", "Expected Integer types for operator <");
-	  return (R)"Boolean";
+   public String visit(CompareExpression n, String argu) {
+      typeCheckBinExpr(n.f0,n.f1,n.f2, argu,  "Integer", "Expected Integer types for operator <");
+	  return "Boolean";
    }
 
    /**
@@ -609,9 +712,9 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     * f1 -> "+"
     * f2 -> PrimaryExpression()
     */
-   public R visit(PlusExpression n, A argu) {
-      typeCheckBinExpr(n.f0,n.f1,n.f2, argu, (R) "Integer", "Expected Integer types for operator +");
-	  return (R)"Integer";
+   public String visit(PlusExpression n, String argu) {
+      typeCheckBinExpr(n.f0,n.f1,n.f2, argu,  "Integer", "Expected Integer types for operator +");
+	  return "Integer";
    }
 
    /**
@@ -619,9 +722,9 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     * f1 -> "-"
     * f2 -> PrimaryExpression()
     */
-   public R visit(MinusExpression n, A argu) {
-      typeCheckBinExpr(n.f0,n.f1,n.f2, argu, (R) "Integer", "Expected Integer types for operator -");
-	  return (R)"Integer";
+   public String visit(MinusExpression n, String argu) {
+      typeCheckBinExpr(n.f0,n.f1,n.f2, argu,  "Integer", "Expected Integer types for operator -");
+	  return "Integer";
    }
 
    /**
@@ -629,9 +732,9 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     * f1 -> "*"
     * f2 -> PrimaryExpression()
     */
-   public R visit(TimesExpression n, A argu) {
-      typeCheckBinExpr(n.f0,n.f1,n.f2, argu, (R) "Integer", "Expected Integer types for operator *");
-	  return (R)"Integer";
+   public String visit(TimesExpression n, String argu) {
+      typeCheckBinExpr(n.f0,n.f1,n.f2, argu,  "Integer", "Expected Integer types for operator *");
+	  return "Integer";
 
    }
 
@@ -641,21 +744,21 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     * f2 -> PrimaryExpression()
     * f3 -> "]"
     */
-   public R visit(ArrayLookup n, A argu) {
-      R _ret=null;
-      R lhsType = n.f0.accept(this, argu);
+   public String visit(ArrayLookup n, String argu) {
+      String _ret=null;
+      String lhsType = n.f0.accept(this, argu);
 	  if(!lhsType.equals("Integer[]")){
 		System.err.println("ERROR: expected type Integer[] in lhs of ArrayLookup");
 		System.exit(1);
 	  }
       n.f1.accept(this, argu);
-      R rhsType = n.f2.accept(this, argu);
+      String rhsType = n.f2.accept(this, argu);
 	  if(!rhsType.equals("Integer")){
 		System.err.println("ERROR: expected type Integer in rhs of ArrayLookup");
 		System.exit(1);
 	  }
       n.f3.accept(this, argu);
-      return (R)"Integer";
+      return "Integer";
    }
 
    /**
@@ -663,16 +766,16 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     * f1 -> "."
     * f2 -> "length"
     */
-   public R visit(ArrayLength n, A argu) {
-      R _ret=null;
-      R lhsType = n.f0.accept(this, argu);
+   public String visit(ArrayLength n, String argu) {
+      String _ret=null;
+      String lhsType = n.f0.accept(this, argu);
 	  if(!lhsType.equals("Integer[]")){
 		System.err.println("ERROR: expected type Integer[] in lhs of ArrayLength");
 		System.exit(1);
 	  }
       n.f1.accept(this, argu);
       n.f2.accept(this, argu);
-      return (R)"Integer";
+      return "Integer";
    }
 
    /**
@@ -683,33 +786,40 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     * f4 -> ( ExpressionList() )?
     * f5 -> ")"
     */
-   public R visit(MessageSend n, A argu) {
-      R _ret=null;
+   public String visit(MessageSend n, String argu) {
+   //GOAL:	PrimaryExpression's type is of type Class
+   //	 : 	PrimaryExpression's id is not overshadowed
+   //	 :	Identifier is a method of PrimaryExpression's class type
+      String _ret=null;
 
-      R classType = n.f0.accept(this, argu);
-
+      String classType = n.f0.accept(this, argu);
+	  //check if PrimaryExpression is not overshadowed with non-class type
+	  if(!getTypeOfId(classType).equals("Class")){
+		System.err.format("ERROR: Primary expression is not a class type%n");
+	  }
+	  //check if PrimaryExpression exists as a class
 	  if(!fieldMap.containsKey(classType)){
 		System.err.format("ERROR: primary expression is not a valid type in MessageSend statement");
 		System.exit(1);
 	  }
-
 	  n.f1.accept(this, argu);
 
-      R identType = n.f2.accept(this, argu);
-	  String identName = n.f2.f0.tokenImage;
-	  //VarOrMethod method = fieldMap(classType).(identType);
-	  if(!fieldMap.get(classType).containsKey(identName) ||
-	  	 !fieldMap.get(classType).get(identName).isMethod)
-	  {
-		System.err.format("ERROR: %s is not defined as a method in class %s", identName, classType);
-		System.exit(1);
-	  }
-	  
-	 // VarOrMethod method = fieldMap.get(classType).get(identName);
-
+      String identName = n.f2.accept(this, argu);
 	
       n.f3.accept(this, argu);
+	  currentParams = new Vector<String>();
       n.f4.accept(this, argu);
+	  //make vector of args
+	  Pair result = isMethodOfInheritance(classType, identName, currentParams);
+	  if(!result.first){
+		//Method is not in class or parent classes
+		System.err.format("ERROR: Method %s called from class %s is not a declared method of class %s or its parent classes%n", identName, classType, classType);
+		System.exit(1);
+	  }
+
+	  _ret = result.second;
+	  currentParams = null;
+
       n.f5.accept(this, argu);
       return _ret;
    }
@@ -718,10 +828,10 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     * f0 -> Expression()
     * f1 -> ( ExpressionRest() )*
     */
-   public R visit(ExpressionList n, A argu) {
-      R _ret=null;
-      n.f0.accept(this, argu);
-      n.f1.accept(this, argu);
+   public String visit(ExpressionList n, String argu) {
+      String _ret=null;
+      currentParams.add(n.f0.accept(this, argu));
+	  n.f1.accept(this, argu);
       return _ret;
    }
 
@@ -729,10 +839,10 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     * f0 -> ","
     * f1 -> Expression()
     */
-   public R visit(ExpressionRest n, A argu) {
-      R _ret=null;
+   public String visit(ExpressionRest n, String argu) {
+      String _ret=null;
       n.f0.accept(this, argu);
-      n.f1.accept(this, argu);
+	  currentParams.add(n.f1.accept(this, argu));
       return _ret;
    }
 
@@ -747,12 +857,19 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     *       | NotExpression()
     *       | BracketExpression()
     */
-   public R visit(PrimaryExpression n, A argu) {
-      R _ret=null;
+   public String visit(PrimaryExpression n, String argu) {
+      String _ret=null;
       _ret = n.f0.accept(this, argu);
 
-		//choice node if statements
-		if(n.f0.which == 6){ //is identifier node
+		if(n.f0.which == 3){ //is identifier node
+			String ident = _ret;
+			_ret = getTypeOfId(_ret);
+			if(_ret.equals("")){
+				System.out.format("Identifier %s not previously declared in a reachable scope%n", ident);
+				System.exit(1);
+			}
+		}
+		else{	//is another node
 			
 		}
 
@@ -762,36 +879,39 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
    /**
     * f0 -> <INTEGER_LITERAL>
     */
-   public R visit(IntegerLiteral n, A argu) {
-      R _ret=null;
+   public String visit(IntegerLiteral n, String argu) {
+      String _ret=null;
       n.f0.accept(this, argu);
+	  _ret = "Integer";
       return _ret;
    }
 
    /**
     * f0 -> "true"
     */
-   public R visit(TrueLiteral n, A argu) {
-      R _ret=null;
+   public String visit(TrueLiteral n, String argu) {
+      String _ret=null;
       n.f0.accept(this, argu);
+	  _ret = "Boolean";
       return _ret;
    }
 
    /**
     * f0 -> "false"
     */
-   public R visit(FalseLiteral n, A argu) {
-      R _ret=null;
+   public String visit(FalseLiteral n, String argu) {
+      String _ret=null;
       n.f0.accept(this, argu);
+	  _ret = "Boolean";
       return _ret;
    }
 
    /**
     * f0 -> <IDENTIFIER>
     */
-   public R visit(Identifier n, A argu) {
-      R _ret=null;
-      _ret = (R)n.f0.tokenImage;
+   public String visit(Identifier n, String argu) {
+      String _ret=null;
+      _ret = n.f0.tokenImage;
 	  n.f0.accept(this, argu);
       return _ret;
    }
@@ -799,8 +919,8 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
    /**
     * f0 -> "this"
     */
-   public R visit(ThisExpression n, A argu) {
-      R _ret=null;
+   public String visit(ThisExpression n, String argu) {
+      String _ret=null;
       n.f0.accept(this, argu);
       return _ret;
    }
@@ -812,8 +932,8 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     * f3 -> Expression()
     * f4 -> "]"
     */
-   public R visit(ArrayAllocationExpression n, A argu) {
-      R _ret=null;
+   public String visit(ArrayAllocationExpression n, String argu) {
+      String _ret=null;
       n.f0.accept(this, argu);
       n.f1.accept(this, argu);
       n.f2.accept(this, argu);
@@ -828,9 +948,9 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     * f2 -> "("
     * f3 -> ")"
     */
-   public R visit(AllocationExpression n, A argu) {
+   public String visit(AllocationExpression n, String argu) {
    	//GOAL: check if Identifier is a created class
-      R _ret=null;
+      String _ret=null;
       n.f0.accept(this, argu);
       _ret = n.f1.accept(this, argu);
 		//checking identifier
@@ -849,8 +969,8 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     * f0 -> "!"
     * f1 -> Expression()
     */
-   public R visit(NotExpression n, A argu) {
-      R _ret=null;
+   public String visit(NotExpression n, String argu) {
+      String _ret=null;
       n.f0.accept(this, argu);
       n.f1.accept(this, argu);
       return _ret;
@@ -861,8 +981,8 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     * f1 -> Expression()
     * f2 -> ")"
     */
-   public R visit(BracketExpression n, A argu) {
-      R _ret=null;
+   public String visit(BracketExpression n, String argu) {
+      String _ret=null;
       n.f0.accept(this, argu);
       n.f1.accept(this, argu);
       n.f2.accept(this, argu);

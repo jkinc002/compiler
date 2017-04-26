@@ -7,8 +7,20 @@ class Main {
 class A {
 	public int run() {
 		int x;
-		y = 1; // TE: Name error!  Variable 'y' doesn't exist.
+		C q;
+		x = q.cow();
 		return x;
 	}
 }
+
+class B {
+	public int cow() {
+		int y;
+		return y;
+	}
+
+
+}
+
+class C extends B {}
 
