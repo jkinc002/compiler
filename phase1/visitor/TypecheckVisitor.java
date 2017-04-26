@@ -69,6 +69,17 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
 		}
 	}
 
+	private String getTypeOfId(String ident){
+		
+		for(int i = symbolTable.size() - 1;i >= 0; --i){
+			if(symbolTable.get(i).containsKey(ident)){
+				return symbolTable.get(i).get(ident);
+			}
+		}
+		return "";
+		
+	}
+
 	private void addVarDeclarations (Map<String,String> m, NodeListOptional nodeList){
 		for (int j = 0; j < nodeList.size(); ++j)
 		{
@@ -678,7 +689,7 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
       R classType = n.f0.accept(this, argu);
 
 	  if(!fieldMap.containsKey(classType)){
-		System.err.println("ERROR: primary expression is not a valid type in MessageSend statement");
+		System.err.format("ERROR: primary expression is not a valid type in MessageSend statement");
 		System.exit(1);
 	  }
 
@@ -738,7 +749,13 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     */
    public R visit(PrimaryExpression n, A argu) {
       R _ret=null;
-      n.f0.accept(this, argu);
+      _ret = n.f0.accept(this, argu);
+
+		//choice node if statements
+		if(n.f0.which == 6){ //is identifier node
+			
+		}
+
       return _ret;
    }
 
@@ -774,7 +791,8 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     */
    public R visit(Identifier n, A argu) {
       R _ret=null;
-      n.f0.accept(this, argu);
+      _ret = (R)n.f0.tokenImage;
+	  n.f0.accept(this, argu);
       return _ret;
    }
 
@@ -811,9 +829,17 @@ public class TypecheckVisitor<R extends String,A> extends GJDepthFirst<R,A> {
     * f3 -> ")"
     */
    public R visit(AllocationExpression n, A argu) {
+   	//GOAL: check if Identifier is a created class
       R _ret=null;
       n.f0.accept(this, argu);
-      n.f1.accept(this, argu);
+      _ret = n.f1.accept(this, argu);
+		//checking identifier
+		if(!getTypeOfId(_ret).equals("Class"))
+		{
+			System.err.format("Identifier %s is not of type Class%n", _ret);
+			System.exit(1);
+		}
+
       n.f2.accept(this, argu);
       n.f3.accept(this, argu);
       return _ret;
