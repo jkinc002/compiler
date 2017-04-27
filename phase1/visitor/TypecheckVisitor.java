@@ -153,22 +153,52 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 			m.addField(varNode.f1.f0.tokenImage, getTypeString(varNode.f0));
 		}
 	}
-	
-	private void addFieldDeclarations (VarMethod m, NodeListOptional nodeList){
-		for (int j = 0; j < nodeList.size(); ++j)
-		{
-			VarDeclaration varNode = (VarDeclaration)nodeList.elementAt(j);
-			m.addField(varNode.f1.f0.tokenImage, getTypeString(varNode.f0));
-		}
-	}	
 
-	private void addMethodDeclarations (VarMethod m, NodeListOptional nodeList){
-		for (int j = 0; j < nodeList.size(); ++j)
+	private String compareMethodSigs(Map<String, VarMethod.Method> childMethods, Map<String, VarMethod.Method> parentMethods)
+	{
+		for (Map.Entry<String, VarMethod.Method> childMethodEntry : childMethods.entrySet())
 		{
-			MethodDeclaration varNode = (MethodDeclaration)nodeList.elementAt(j);
-			m.addMethod(varNode.f2.f0.tokenImage, getTypeString(varNode.f1),null);
-		}
+			String methodName = childMethodEntry.getKey();
+			VarMethod.Method childMethod = childMethodEntry.getValue();
+			VarMethod.Method parentMethod = parentMethods.get(methodName);
+			if (parentMethod != null) {
+				if (childMethod.retType != parentMethod.retType) {
+					return methodName;
+				}
+				if (childMethod.paramTypes.size() != parentMethod.paramTypes.size()) {
+					return methodName;
+				}
+				for (int i = 0; i < childMethod.paramTypes.size(); i++) {
+					if (childMethod.paramTypes.get(i) != parentMethod.paramTypes.get(i)) {
+						return methodName;
+					}
+				}	
+			}
+		} 
+		return null;
 	}
+	
+	private void addFieldAndMethodDeclarations (String className){
+		//Add the fields of className and its super classes to the scope
+
+		VarMethod childScope = new VarMethod();
+		String currClass = className;
+		while (currClass != "Object")
+		{
+		    VarMethod parentScope = fieldMap.get(currClass).copy();
+		    parentScope.fields.putAll(childScope.fields);
+		    String overloadedMethod = compareMethodSigs(childScope.methods, parentScope.methods);
+	            if (overloadedMethod != null)
+                    {
+                        System.err.format("%s cannot overload parent %s's method %s", className, currClass, overloadedMethod); 
+                    }
+		    parentScope.methods.putAll(childScope.methods);
+		    childScope = parentScope;
+		    currClass = inheritanceMap.get(currClass);
+		}
+		symbolTable.peek().fields.putAll(childScope.fields);
+		symbolTable.peek().methods.putAll(childScope.methods);
+	}	
 
      public String visit(Goal n, String argu){
 	   symbolTable = new Stack<VarMethod>();
@@ -316,8 +346,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 	public String visit(ClassDeclaration n, String argu) {
 		VarMethod scope = new VarMethod();
 		symbolTable.push(scope);
-		addFieldDeclarations(scope, n.f3);
-		addMethodDeclarations(scope, n.f4);
+		addFieldAndMethodDeclarations(n.f1.f0.tokenImage);
 		//printMap(scope);
 
       String _ret=null;
@@ -345,9 +374,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
    public String visit(ClassExtendsDeclaration n, String argu) {
 		VarMethod scope = new VarMethod();
 		symbolTable.push(scope);
-		addFieldDeclarations(scope, n.f5);
-		addMethodDeclarations(scope, n.f6);
-		//printMap(scope);
+		addFieldAndMethodDeclarations(n.f1.f0.tokenImage);
 
       String _ret=null;
       n.f0.accept(this, argu);
