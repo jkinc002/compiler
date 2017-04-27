@@ -28,44 +28,57 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 			isMethod = isMeth;
 		}
 	}
-     Stack<HashMap<String,String>> symbolTable = null;
-	 HashMap<String,String> inheritanceMap= null;
-     HashMap<String,HashMap<String,VarOrMethod>> fieldMap = null;
+	
+ 
+
+     private class VarMethod {
+         Map<String, String> fields; //maps identifier to type
+	 Map<String, Method> methods; //maps identifier to return type and param types
+     	
+	private class Method {
+
+		Vector<String> paramTypes;
+		String retType;
+
+		Method (String retType, Vector<String> paramTypes)
+		{
+			this.retType = retType;
+			this.paramTypes = paramTypes;
+		}
+	}
+	VarMethod()
+	{
+		fields = new HashMap<String, String>();
+		methods = new HashMap<String, Method>();
+	}
+
+        public void addMethod(String id, String retType, Vector<String> paramTypes)
+	{
+		if(methods.containsKey(id)){
+			System.err.println("ERROR: duplicate methods declared");
+			System.exit(1);
+		}
+
+		methods.put(id, new Method(retType, paramTypes));	
+	}
+
+	public void addField(String id, String type)
+	{
+	    if(fields.containsKey(id)){
+		System.err.println("ERROR: duplicate fields declared");
+		System.exit(1);
+	    }
+
+            fields.put(id, type);
+	}
+     }
+
+    	Stack<VarMethod> symbolTable = null;
+	HashMap<String,String> inheritanceMap= null;
+     	HashMap<String,VarMethod> fieldMap = null;
 
 	 Vector<String> currentParams = null;
 
-	public VarOrMethod newVar(String t){
-		return new VarOrMethod(t, new Vector<String>(), false);
-	}
-	public VarOrMethod newMethod(String t, Vector<String> p){
-		return new VarOrMethod(t, p, true);
-	}
-
-	 public void printMap(Map<String,String> m){
-		for(Map.Entry<String,String> entry : m.entrySet()) {
-			System.out.println("Item: " + entry.getKey() + " Type: " + entry.getValue());
-			}
-			System.out.println(m.size());
-	 }
-	 public void printMethodParams(Vector<String> v){
-		for(String s : v){
-			System.out.println("\t\t" + s + ", ");
-		}
-	 }
-	 public void printFieldMap()
-	 {
-	 	for (Map.Entry<String,HashMap<String,VarOrMethod>> classEntry : fieldMap.entrySet())
-		{
-			System.out.println("Class " + classEntry.getKey() + ": ");
-			for (Map.Entry<String,VarOrMethod> fieldEntry: classEntry.getValue().entrySet())
-			{
-				VarOrMethod varmeth = fieldEntry.getValue();
-				System.out.println("\t name: " + fieldEntry.getKey() + ", type: " + varmeth.type + ", ismethod: " + varmeth.isMethod);
-				printMethodParams(varmeth.params);
-			}
-		}
-	 }
-	
 	 private String getTypeString(Type type){
 		if(type.f0.which == 0){
 			return "Integer[]";
@@ -82,11 +95,11 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 		}
 	}
 
-	private String getTypeOfId(String ident){
+	private String getTypeOfField(String ident){
 		
 		for(int i = symbolTable.size() - 1;i >= 0; --i){
-			if(symbolTable.get(i).containsKey(ident)){
-				return symbolTable.get(i).get(ident);
+			if(symbolTable.get(i).fields.containsKey(ident)){
+				return symbolTable.get(i).fields.get(ident);
 			}
 		}
 		return "";
@@ -95,8 +108,8 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 
 	private boolean isMethodOfClass(String methodName, String className)
 	{
-		if(fieldMap.get(className).containsKey(methodName)){
-			return fieldMap.get(className).get(methodName).isMethod;
+		if(fieldMap.get(className).methods.containsKey(methodName)){
+			return true;
 		}
 		return false;
 	}
@@ -106,7 +119,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 		String currClass = classType;
 		while(!currClass.equals("Object")){
 			if(isMethodOfClass(methodName, currClass)){
-				Vector<String> paramTypes = fieldMap.get(currClass).get(methodName).params;
+				Vector<String> paramTypes = fieldMap.get(currClass).methods.get(methodName).paramTypes;
 				if(paramTypes.size() != args.size()){
 					//ERROR: same method but different params
 					System.err.format("Method %s exists in class %s but uses different parameters%n", methodName, currClass);
@@ -120,7 +133,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 					}
 				}
 				
-				return new Pair(true,fieldMap.get(currClass).get(methodName).type);
+				return new Pair(true,fieldMap.get(currClass).methods.get(methodName).retType);
 			}
 			else{
 				currClass = inheritanceMap.get(currClass);
@@ -129,46 +142,53 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 		return new Pair(false,"");
 	}
 
-	private void addVarDeclarations (Map<String,String> m, NodeListOptional nodeList){
+	private void addVarDeclarations (VarMethod m, NodeListOptional nodeList){
 		for (int j = 0; j < nodeList.size(); ++j)
 		{
 			VarDeclaration varNode = (VarDeclaration)nodeList.elementAt(j);
-			if(m.containsKey(varNode.f1.f0.tokenImage)){
+			if(m.fields.containsKey(varNode.f1.f0.tokenImage)){
 				System.err.println("ERROR: duplicate variables declared in same scope");
+				System.exit(1);
 			}
-			m.put(varNode.f1.f0.tokenImage, getTypeString(varNode.f0));
+			m.addField(varNode.f1.f0.tokenImage, getTypeString(varNode.f0));
 		}
 	}
-	private void addMethodDeclarations (Map<String,String> m, NodeListOptional nodeList){
+	
+	private void addFieldDeclarations (VarMethod m, NodeListOptional nodeList){
+		for (int j = 0; j < nodeList.size(); ++j)
+		{
+			VarDeclaration varNode = (VarDeclaration)nodeList.elementAt(j);
+			m.addField(varNode.f1.f0.tokenImage, getTypeString(varNode.f0));
+		}
+	}	
+
+	private void addMethodDeclarations (VarMethod m, NodeListOptional nodeList){
 		for (int j = 0; j < nodeList.size(); ++j)
 		{
 			MethodDeclaration varNode = (MethodDeclaration)nodeList.elementAt(j);
-			if(m.containsKey(varNode.f2.f0.tokenImage)){
-				System.err.println("ERROR: duplicate methods declared in same scope");
-			}
-			m.put(varNode.f2.f0.tokenImage, "method");
+			m.addMethod(varNode.f2.f0.tokenImage, getTypeString(varNode.f1),null);
 		}
 	}
 
      public String visit(Goal n, String argu){
-	   symbolTable = new Stack<HashMap<String,String>>();
+	   symbolTable = new Stack<VarMethod>();
 	   inheritanceMap = new HashMap<String,String>();
-   		fieldMap = new HashMap<String,HashMap<String,VarOrMethod>>();
+   	   fieldMap = new HashMap<String,VarMethod>();
 	   // FIXME: make sure parent exists
 	   // FIXME: make sure parent does not ultimately inherit the child (inheritance loop)
 	   inheritanceMap.put("Object", "Object");
 
-       String _ret = null;
-	   HashMap<String,String> classMap = new HashMap<String,String>();
+           String _ret = null;
+	   VarMethod classMap = new VarMethod();
 
 	   // Our main class
-	   classMap.put(n.f0.f1.f0.tokenImage,"Class");
+	   classMap.addField(n.f0.f1.f0.tokenImage,"Class");
 	   inheritanceMap.put(n.f0.f1.f0.tokenImage, "Object");
 	   //put main class in field map
-	   fieldMap.put(n.f0.f1.f0.tokenImage,new HashMap<String,VarOrMethod>());
+	   fieldMap.put(n.f0.f1.f0.tokenImage,new VarMethod()); //TODO deal with recusive main call
 	   //build field map
 	   for(int i = 0; i < n.f1.size(); ++i){
-		 HashMap<String,VarOrMethod> currFields = new HashMap<String,VarOrMethod>();
+		 VarMethod varMethodMap = new VarMethod();
 	     TypeDeclaration temp = (TypeDeclaration) n.f1.elementAt(i);
 	   		String tokenImage;
 			String parent;
@@ -189,25 +209,25 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 				methFields = castedNode.f6;	
 			}
 			//check for duplicate class declarations
-			if (classMap.containsKey(tokenImage))
+			if (classMap.fields.containsKey(tokenImage))
 			{
 				System.err.println("ERROR: Duplicate classes declared");	
 				System.exit(1);
 			}
-			classMap.put(tokenImage,"Class");
+			classMap.fields.put(tokenImage,"Class");
 			inheritanceMap.put(tokenImage,parent);
 			//Loop adds var declarations to field map
 			for (int j = 0; j < varFields.size(); ++j)
 			{
 				VarDeclaration varNode = (VarDeclaration)varFields.elementAt(j);
-			    currFields.put(varNode.f1.f0.tokenImage, newVar(getTypeString(varNode.f0)));
+			    varMethodMap.addField(varNode.f1.f0.tokenImage, getTypeString(varNode.f0));
 			}
 			//Loop adds method declarations to field map
 		    for (int k = 0; k < methFields.size(); ++k)
 			{
 				MethodDeclaration methNode = (MethodDeclaration)methFields.elementAt(k);
 				//check for duplicate method declarations
-				if(currFields.containsKey(methNode.f2.f0.tokenImage)){
+				if(varMethodMap.methods.containsKey(methNode.f2.f0.tokenImage)){
 					System.err.println("ERROR: duplicate methods declared");
 					System.exit(1);
 				}
@@ -223,10 +243,10 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 					}
 					
 				}
-				currFields.put(methNode.f2.f0.tokenImage,newMethod(methodType, methodParams));
+				varMethodMap.addMethod(methNode.f2.f0.tokenImage, methodType, methodParams);
 			}
-			//printMap(currFields);
-			fieldMap.put(tokenImage,currFields);
+			//printMap(varMethodMap);
+			fieldMap.put(tokenImage,varMethodMap);
 	   }
 	   symbolTable.push(classMap);
 	   n.f0.accept(this, argu);
@@ -256,9 +276,9 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
     */
 
 	public String visit(MainClass n, String argu){
-		HashMap<String, String> scope = new HashMap<String,String>();
-	    symbolTable.push(scope);	
-		scope.put(n.f11.f0.tokenImage, "String[]");
+		VarMethod scope = new VarMethod();
+	    	symbolTable.push(scope);	
+		scope.addMethod(n.f11.f0.tokenImage, "String[]", null);
 		addVarDeclarations(scope, n.f14);
 
 		String _ret=null;
@@ -294,9 +314,9 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
     * f5 -> "}"
     */
 	public String visit(ClassDeclaration n, String argu) {
-		HashMap<String, String> scope = new HashMap<String,String>();
+		VarMethod scope = new VarMethod();
 		symbolTable.push(scope);
-		addVarDeclarations(scope, n.f3);
+		addFieldDeclarations(scope, n.f3);
 		addMethodDeclarations(scope, n.f4);
 		//printMap(scope);
 
@@ -323,9 +343,9 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
     * f7 -> "}"
     */
    public String visit(ClassExtendsDeclaration n, String argu) {
-		HashMap<String, String> scope = new HashMap<String,String>();
+		VarMethod scope = new VarMethod();
 		symbolTable.push(scope);
-		addVarDeclarations(scope, n.f5);
+		addFieldDeclarations(scope, n.f5);
 		addMethodDeclarations(scope, n.f6);
 		//printMap(scope);
 
@@ -374,22 +394,17 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
     * f12 -> "}"
     */
    public String visit(MethodDeclaration n, String argu) {
-		HashMap<String, String> scope = new HashMap<String,String>();
+		VarMethod scope = new VarMethod();
 		symbolTable.push(scope);
 
 		//GOAL: check for duplicate parameter names
 		if(n.f4.present()){
 			FormalParameterList paramListNode = (FormalParameterList)n.f4.node;
-			scope.put(paramListNode.f0.f1.f0.tokenImage, getTypeString(paramListNode.f0.f0));
+			scope.addField(paramListNode.f0.f1.f0.tokenImage, getTypeString(paramListNode.f0.f0));
 			
 			for(int l = 0; l < paramListNode.f1.size(); ++l){
 				FormalParameterRest paramNode = (FormalParameterRest)paramListNode.f1.elementAt(l);
-				if(scope.containsKey(paramNode.f1.f1.f0.tokenImage)){
-					//ERROR: duplicate param names found
-					System.out.format("Duplicate parameters of name %s found%n", paramNode.f1.f1.f0.tokenImage);
-					System.exit(1);
-				}
-				scope.put(paramNode.f1.f1.f0.tokenImage, getTypeString(paramNode.f1.f0));
+				scope.addField(paramNode.f1.f1.f0.tokenImage, getTypeString(paramNode.f1.f0));
 			}
 			
 		}
@@ -527,7 +542,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
     */
    public String visit(AssignmentStatement n, String argu) {
       String _ret=null;
-      String lhsType = getTypeOfId(n.f0.accept(this, argu));
+      String lhsType = getTypeOfField(n.f0.accept(this, argu));
 	  if(lhsType.equals("")){
 	  	System.out.format("Identifier %s not previously declared in a reachable scope%n", n.f0.f0.tokenImage);
 		System.exit(1);
@@ -556,7 +571,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
    //	 : Expression inside [] must be of type "INTEGER"
    //	 : Expression on RHS must be of type "INTEGER"
       String _ret=null;
-      String identType = getTypeOfId(n.f0.accept(this, argu));
+      String identType = getTypeOfField(n.f0.accept(this, argu));
 	  if(!identType.equals("Integer[]")){
 		//ERROR: Identifier was not of type INTEGER[]
 		System.out.format("Identifier %n is not of type INTEGER_ARRAY%n", n.f0.f0.tokenImage);
@@ -794,7 +809,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 
       String classType = n.f0.accept(this, argu);
 	  //check if PrimaryExpression is not overshadowed with non-class type
-	  if(!getTypeOfId(classType).equals("Class")){
+	  if(!getTypeOfField(classType).equals("Class")){
 		System.err.format("ERROR: Primary expression is not a class type%n");
 	  }
 	  //check if PrimaryExpression exists as a class
@@ -863,7 +878,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 
 		if(n.f0.which == 3){ //is identifier node
 			String ident = _ret;
-			_ret = getTypeOfId(_ret);
+			_ret = getTypeOfField(_ret);
 			if(_ret.equals("")){
 				System.out.format("Identifier %s not previously declared in a reachable scope%n", ident);
 				System.exit(1);
@@ -954,7 +969,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
       n.f0.accept(this, argu);
       _ret = n.f1.accept(this, argu);
 		//checking identifier
-		if(!getTypeOfId(_ret).equals("Class"))
+		if(!getTypeOfField(_ret).equals("Class"))
 		{
 			System.err.format("Identifier %s is not of type Class%n", _ret);
 			System.exit(1);

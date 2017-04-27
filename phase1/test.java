@@ -8,13 +8,14 @@ class A {
 	public int run() {
 		int x;
 		C q;
-		x = q.cow();
+		int[] b;
+		x = q.cow(x,b);
 		return x;
 	}
 }
 
 class B {
-	public int cow() {
+	public int cow(int a, int b) {
 		int y;
 		return y;
 	}
