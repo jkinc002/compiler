@@ -31,7 +31,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 	
  
 
-     private class VarMethod {
+     private class Scope {
          Map<String, String> fields; //maps identifier to type
 	 Map<String, Method> methods; //maps identifier to return type and param types
      	
@@ -46,10 +46,14 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 			this.paramTypes = paramTypes;
 		}
 	}
-	VarMethod()
+	Scope()
 	{
 		fields = new HashMap<String, String>();
 		methods = new HashMap<String, Method>();
+	}
+	Scope(Scope copy){
+		fields = new HashMap<String,String>(copy.fields);
+		methods = new HashMap<String,Method>(copy.methods);
 	}
 
         public void addMethod(String id, String retType, Vector<String> paramTypes)
@@ -73,11 +77,30 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 	}
      }
 
-    	Stack<VarMethod> symbolTable = null;
+    	Stack<Scope> symbolTable = null;
 	HashMap<String,String> inheritanceMap= null;
-     	HashMap<String,VarMethod> fieldMap = null;
+     	HashMap<String,Scope> fieldMap = null;
+	String currentWorkingClass = null;
 
 	 Vector<String> currentParams = null;
+
+	private Boolean areChildAndParent(String childType, String parentType){
+		if(childType == parentType) return true;
+		
+		if (!inheritanceMap.containsKey(childType) || inheritanceMap.containsKey(parentType)) 
+		{
+			return false;
+		}
+ 
+		String currClass = childType;
+		while(!currClass.equals("Object")){
+			if(currClass.equals(parentType)){
+				return true;
+			}
+			currClass = inheritanceMap.get(currClass);
+		}
+		return false;
+	}
 
 	 private String getTypeString(Type type){
 		if(type.f0.which == 0){
@@ -126,7 +149,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 					System.exit(1);
 				}
 				for(int i = 0; i < paramTypes.size(); ++i){
-					if(!paramTypes.get(i).equals(args.get(i))){
+					if(!areChildAndParent(args.get(i), paramTypes.get(i))){
 						//ERROR: same method but different params
 						System.err.format("Method %s exists in class %s but uses different parameters%n", methodName, currClass);
 						System.exit(1);
@@ -142,7 +165,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 		return new Pair(false,"");
 	}
 
-	private void addVarDeclarations (VarMethod m, NodeListOptional nodeList){
+	private void addVarDeclarations (Scope m, NodeListOptional nodeList){
 		for (int j = 0; j < nodeList.size(); ++j)
 		{
 			VarDeclaration varNode = (VarDeclaration)nodeList.elementAt(j);
@@ -154,13 +177,13 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 		}
 	}
 
-	private String compareMethodSigs(Map<String, VarMethod.Method> childMethods, Map<String, VarMethod.Method> parentMethods)
+	private String compareMethodSigs(Map<String, Scope.Method> childMethods, Map<String, Scope.Method> parentMethods)
 	{
-		for (Map.Entry<String, VarMethod.Method> childMethodEntry : childMethods.entrySet())
+		for (Map.Entry<String, Scope.Method> childMethodEntry : childMethods.entrySet())
 		{
 			String methodName = childMethodEntry.getKey();
-			VarMethod.Method childMethod = childMethodEntry.getValue();
-			VarMethod.Method parentMethod = parentMethods.get(methodName);
+			Scope.Method childMethod = childMethodEntry.getValue();
+			Scope.Method parentMethod = parentMethods.get(methodName);
 			if (parentMethod != null) {
 				if (childMethod.retType != parentMethod.retType) {
 					return methodName;
@@ -181,11 +204,11 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 	private void addFieldAndMethodDeclarations (String className){
 		//Add the fields of className and its super classes to the scope
 
-		VarMethod childScope = new VarMethod();
+		Scope childScope = new Scope();
 		String currClass = className;
 		while (currClass != "Object")
 		{
-		    VarMethod parentScope = fieldMap.get(currClass).copy();
+		    Scope parentScope = new Scope(fieldMap.get(currClass));
 		    parentScope.fields.putAll(childScope.fields);
 		    String overloadedMethod = compareMethodSigs(childScope.methods, parentScope.methods);
 	            if (overloadedMethod != null)
@@ -201,24 +224,24 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 	}	
 
      public String visit(Goal n, String argu){
-	   symbolTable = new Stack<VarMethod>();
+	   symbolTable = new Stack<Scope>();
 	   inheritanceMap = new HashMap<String,String>();
-   	   fieldMap = new HashMap<String,VarMethod>();
+   	   fieldMap = new HashMap<String,Scope>();
 	   // FIXME: make sure parent exists
 	   // FIXME: make sure parent does not ultimately inherit the child (inheritance loop)
 	   inheritanceMap.put("Object", "Object");
 
            String _ret = null;
-	   VarMethod classMap = new VarMethod();
+	   Scope classMap = new Scope();
 
 	   // Our main class
 	   classMap.addField(n.f0.f1.f0.tokenImage,"Class");
 	   inheritanceMap.put(n.f0.f1.f0.tokenImage, "Object");
 	   //put main class in field map
-	   fieldMap.put(n.f0.f1.f0.tokenImage,new VarMethod()); //TODO deal with recusive main call
+	   fieldMap.put(n.f0.f1.f0.tokenImage,new Scope()); //TODO deal with recusive main call
 	   //build field map
 	   for(int i = 0; i < n.f1.size(); ++i){
-		 VarMethod varMethodMap = new VarMethod();
+		 Scope varMethodMap = new Scope();
 	     TypeDeclaration temp = (TypeDeclaration) n.f1.elementAt(i);
 	   		String tokenImage;
 			String parent;
@@ -306,7 +329,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
     */
 
 	public String visit(MainClass n, String argu){
-		VarMethod scope = new VarMethod();
+		Scope scope = new Scope();
 	    	symbolTable.push(scope);	
 		scope.addMethod(n.f11.f0.tokenImage, "String[]", null);
 		addVarDeclarations(scope, n.f14);
@@ -344,7 +367,8 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
     * f5 -> "}"
     */
 	public String visit(ClassDeclaration n, String argu) {
-		VarMethod scope = new VarMethod();
+		currentWorkingClass = n.f1.f0.tokenImage;
+		Scope scope = new Scope();
 		symbolTable.push(scope);
 		addFieldAndMethodDeclarations(n.f1.f0.tokenImage);
 		//printMap(scope);
@@ -372,7 +396,8 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
     * f7 -> "}"
     */
    public String visit(ClassExtendsDeclaration n, String argu) {
-		VarMethod scope = new VarMethod();
+		currentWorkingClass = n.f1.f0.tokenImage;
+		Scope scope = new Scope();
 		symbolTable.push(scope);
 		addFieldAndMethodDeclarations(n.f1.f0.tokenImage);
 
@@ -421,27 +446,27 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
     * f12 -> "}"
     */
    public String visit(MethodDeclaration n, String argu) {
-		VarMethod scope = new VarMethod();
-		symbolTable.push(scope);
+	Scope scope = new Scope();
+	symbolTable.push(scope);
 
-		//GOAL: check for duplicate parameter names
-		if(n.f4.present()){
-			FormalParameterList paramListNode = (FormalParameterList)n.f4.node;
-			scope.addField(paramListNode.f0.f1.f0.tokenImage, getTypeString(paramListNode.f0.f0));
-			
-			for(int l = 0; l < paramListNode.f1.size(); ++l){
-				FormalParameterRest paramNode = (FormalParameterRest)paramListNode.f1.elementAt(l);
-				scope.addField(paramNode.f1.f1.f0.tokenImage, getTypeString(paramNode.f1.f0));
-			}
-			
+	//GOAL: check for duplicate parameter names
+	if(n.f4.present()){
+		FormalParameterList paramListNode = (FormalParameterList)n.f4.node;
+		scope.addField(paramListNode.f0.f1.f0.tokenImage, getTypeString(paramListNode.f0.f0));
+		
+		for(int l = 0; l < paramListNode.f1.size(); ++l){
+			FormalParameterRest paramNode = (FormalParameterRest)paramListNode.f1.elementAt(l);
+			scope.addField(paramNode.f1.f1.f0.tokenImage, getTypeString(paramNode.f1.f0));
 		}
-		//AddVar checks for duplicate declarations in the same scope
-		addVarDeclarations(scope, n.f7);
+		
+	}
+	//AddVar checks for duplicate declarations in the same scope
+	addVarDeclarations(scope, n.f7);
 
 
       String _ret=null;
       n.f0.accept(this, argu);
-      n.f1.accept(this, argu);
+      String methodType = n.f1.accept(this, argu);
       n.f2.accept(this, argu);
       n.f3.accept(this, argu);
       n.f4.accept(this, argu);
@@ -450,7 +475,12 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
       n.f7.accept(this, argu);
       n.f8.accept(this, argu);
       n.f9.accept(this, argu);
-      n.f10.accept(this, argu);
+      String retType = n.f10.accept(this, argu);
+	if(!methodType.equals(retType)){
+		//return type did not match method type
+		System.err.format("ERROR: Method return type found %s, expected %s%n",retType,methodType);
+		System.exit(1);
+	}
       n.f11.accept(this, argu);
       n.f12.accept(this, argu);
 
@@ -500,6 +530,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
    public String visit(Type n, String argu) {
       String _ret=null;
       n.f0.accept(this, argu);
+      _ret = getTypeString(n);
       return _ret;
    }
 
@@ -571,13 +602,14 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
       String _ret=null;
       String lhsType = getTypeOfField(n.f0.accept(this, argu));
 	  if(lhsType.equals("")){
-	  	System.out.format("Identifier %s not previously declared in a reachable scope%n", n.f0.f0.tokenImage);
+	  	System.out.format("ERROR: Identifier %s not previously declared in a reachable scope%n", n.f0.f0.tokenImage);
 		System.exit(1);
 	  }
       n.f1.accept(this, argu);
       String rhsType = n.f2.accept(this, argu);
-	  if(!lhsType.equals(rhsType)){
-	  	System.out.format("Assignment of incompatible types: Expected %s, got %s%n", lhsType, rhsType);
+	//FIXME: handle inheritance here
+	  if(!areChildAndParent(rhsType,lhsType)){
+	  	System.out.format("ERROR: Assignment of incompatible types: Expected %s, got %s%n", lhsType, rhsType);
 		System.exit(1);
 		}
       n.f3.accept(this, argu);
@@ -963,7 +995,12 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
     */
    public String visit(ThisExpression n, String argu) {
       String _ret=null;
+	if(currentWorkingClass == null){
+		System.err.format("ERROR: 'this' used in static context%n");
+		System.exit(1);
+	}
       n.f0.accept(this, argu);
+	_ret = currentWorkingClass;
       return _ret;
    }
 
@@ -979,8 +1016,13 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
       n.f0.accept(this, argu);
       n.f1.accept(this, argu);
       n.f2.accept(this, argu);
-      n.f3.accept(this, argu);
+      String expressionType = n.f3.accept(this, argu);
+	if(!expressionType.equals("Integer")){
+		System.err.println("ERROR: Attempted array allocation with non-Integer size"); 
+		System.exit(1);
+	}
       n.f4.accept(this, argu);
+	_ret = "Integer[]";
       return _ret;
    }
 
@@ -1014,7 +1056,12 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
    public String visit(NotExpression n, String argu) {
       String _ret=null;
       n.f0.accept(this, argu);
-      n.f1.accept(this, argu);
+      String expressionType = n.f1.accept(this, argu);
+	if(!expressionType.equals("Boolean")){
+		System.err.format("ERROR: Not expression used on non-boolean expression%n");
+		System.exit(1);
+	}
+	_ret = "Boolean";
       return _ret;
    }
 
@@ -1026,7 +1073,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
    public String visit(BracketExpression n, String argu) {
       String _ret=null;
       n.f0.accept(this, argu);
-      n.f1.accept(this, argu);
+      _ret = n.f1.accept(this, argu);
       n.f2.accept(this, argu);
       return _ret;
    }
