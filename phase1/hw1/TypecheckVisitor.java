@@ -17,20 +17,6 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 		}
 	}
 
-	private class VarOrMethod {
-		String type;
-		Vector<String> params;
-		boolean isMethod;
-
-		VarOrMethod(String t, Vector<String> p, boolean isMeth){
-			type = t;
-			params = p;
-			isMethod = isMeth;
-		}
-	}
-	
- 
-
      private class Scope {
          Map<String, String> fields; //maps identifier to type
 	 Map<String, Method> methods; //maps identifier to return type and param types
@@ -59,7 +45,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
         public void addMethod(String id, String retType, Vector<String> paramTypes)
 	{
 		if(methods.containsKey(id)){
-			System.err.println("ERROR: duplicate methods declared");
+			System.out.println("Type error");
 			System.exit(1);
 		}
 
@@ -69,7 +55,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 	public void addField(String id, String type)
 	{
 	    if(fields.containsKey(id)){
-		System.err.println("ERROR: duplicate fields declared");
+		System.out.println("Type error");
 		System.exit(1);
 	    }
 
@@ -81,13 +67,14 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 	HashMap<String,String> inheritanceMap= null;
      	HashMap<String,Scope> fieldMap = null;
 	String currentWorkingClass = null;
+	int count = 0;
 
 	 Vector<String> currentParams = null;
 
 	private Boolean areChildAndParent(String childType, String parentType){
 		if(childType == parentType) return true;
 		
-		if (!inheritanceMap.containsKey(childType) || inheritanceMap.containsKey(parentType)) 
+		if (!inheritanceMap.containsKey(childType) || !inheritanceMap.containsKey(parentType)) 
 		{
 			return false;
 		}
@@ -145,13 +132,13 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 				Vector<String> paramTypes = fieldMap.get(currClass).methods.get(methodName).paramTypes;
 				if(paramTypes.size() != args.size()){
 					//ERROR: same method but different params
-					System.err.format("Method %s exists in class %s but uses different parameters%n", methodName, currClass);
+					System.out.println("Type error");
 					System.exit(1);
 				}
 				for(int i = 0; i < paramTypes.size(); ++i){
 					if(!areChildAndParent(args.get(i), paramTypes.get(i))){
 						//ERROR: same method but different params
-						System.err.format("Method %s exists in class %s but uses different parameters%n", methodName, currClass);
+						System.out.println("Type error");
 						System.exit(1);
 					}
 				}
@@ -170,7 +157,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 		{
 			VarDeclaration varNode = (VarDeclaration)nodeList.elementAt(j);
 			if(m.fields.containsKey(varNode.f1.f0.tokenImage)){
-				System.err.println("ERROR: duplicate variables declared in same scope");
+				System.out.println("Type error");
 				System.exit(1);
 			}
 			m.addField(varNode.f1.f0.tokenImage, getTypeString(varNode.f0));
@@ -213,7 +200,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 		    String overloadedMethod = compareMethodSigs(childScope.methods, parentScope.methods);
 	            if (overloadedMethod != null)
                     {
-                        System.err.format("%s cannot overload parent %s's method %s", className, currClass, overloadedMethod); 
+                        System.out.println("Type error");
                     }
 		    parentScope.methods.putAll(childScope.methods);
 		    childScope = parentScope;
@@ -227,6 +214,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 	   symbolTable = new Stack<Scope>();
 	   inheritanceMap = new HashMap<String,String>();
    	   fieldMap = new HashMap<String,Scope>();
+	   currentParams = new Vector<String>();
 	   // FIXME: make sure parent exists
 	   // FIXME: make sure parent does not ultimately inherit the child (inheritance loop)
 	   inheritanceMap.put("Object", "Object");
@@ -264,7 +252,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 			//check for duplicate class declarations
 			if (classMap.fields.containsKey(tokenImage))
 			{
-				System.err.println("ERROR: Duplicate classes declared");	
+				System.out.println("Type error");
 				System.exit(1);
 			}
 			classMap.fields.put(tokenImage,"Class");
@@ -281,7 +269,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 				MethodDeclaration methNode = (MethodDeclaration)methFields.elementAt(k);
 				//check for duplicate method declarations
 				if(varMethodMap.methods.containsKey(methNode.f2.f0.tokenImage)){
-					System.err.println("ERROR: duplicate methods declared");
+					System.out.println("Type error");
 					System.exit(1);
 				}
 				String methodType = getTypeString(methNode.f1);
@@ -296,6 +284,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 					}
 					
 				}
+				if (methodParams == null) System.out.println("Type error");
 				varMethodMap.addMethod(methNode.f2.f0.tokenImage, methodType, methodParams);
 			}
 			//printMap(varMethodMap);
@@ -305,6 +294,8 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 	   n.f0.accept(this, argu);
 	   n.f1.accept(this, argu);
 	   n.f2.accept(this, argu);
+	//program successful
+	System.out.println("Program type checked successfully");
        return _ret;
      }   
  /**
@@ -478,7 +469,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
       String retType = n.f10.accept(this, argu);
 	if(!methodType.equals(retType)){
 		//return type did not match method type
-		System.err.format("ERROR: Method return type found %s, expected %s%n",retType,methodType);
+		System.out.println("Type error");
 		System.exit(1);
 	}
       n.f11.accept(this, argu);
@@ -602,14 +593,14 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
       String _ret=null;
       String lhsType = getTypeOfField(n.f0.accept(this, argu));
 	  if(lhsType.equals("")){
-	  	System.out.format("ERROR: Identifier %s not previously declared in a reachable scope%n", n.f0.f0.tokenImage);
+	  	System.out.println("Type error");
 		System.exit(1);
 	  }
       n.f1.accept(this, argu);
       String rhsType = n.f2.accept(this, argu);
 	//FIXME: handle inheritance here
 	  if(!areChildAndParent(rhsType,lhsType)){
-	  	System.out.format("ERROR: Assignment of incompatible types: Expected %s, got %s%n", lhsType, rhsType);
+	  	System.out.println("Type error");
 		System.exit(1);
 		}
       n.f3.accept(this, argu);
@@ -633,14 +624,14 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
       String identType = getTypeOfField(n.f0.accept(this, argu));
 	  if(!identType.equals("Integer[]")){
 		//ERROR: Identifier was not of type INTEGER[]
-		System.out.format("Identifier %n is not of type INTEGER_ARRAY%n", n.f0.f0.tokenImage);
+		System.out.println("Type error");
 		System.exit(1);
 	  }
       n.f1.accept(this, argu);
       String expression1 = n.f2.accept(this, argu);
 	  if(!expression1.equals("Integer")){
 		//ERROR: expression1 was not of type Integer
-		System.out.format("Array index must be of type INT%n");
+		System.out.println("Type error");
 		System.exit(1);
 	  }
       n.f3.accept(this, argu);
@@ -648,7 +639,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
       String expression2 = n.f5.accept(this, argu);
 	  if(!expression2.equals("Integer")){
 		//ERROR: expression2 was not of type Integer
-		System.out.format("Assignement of Array at index must be of type INT%n");
+		System.out.println("Type error");
 		System.exit(1);
 	  }
       n.f6.accept(this, argu);
@@ -673,7 +664,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
       String expressionType = n.f2.accept(this, argu);
 	  if(!expressionType.equals("Boolean")){
 	  	//ERROR: expression is not of type "Boolean"
-		System.out.println("If condition is not of type Boolean");
+		System.out.println("Type error");
 		System.exit(1);
 	  }
       n.f3.accept(this, argu);
@@ -699,7 +690,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
       String expressionType = n.f2.accept(this, argu);
 	  if(!expressionType.equals("Boolean")){
 	  	//ERROR: expression is not of type "Boolean"
-		System.out.println("If condition is not of type Boolean");
+		System.out.println("Type error");
 		System.exit(1);
 	  }
       n.f3.accept(this, argu);
@@ -708,7 +699,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
    }
 
    /**
-    * f0 -> "System.out.println"
+    * f0 -> "System.out.println
     * f1 -> "("
     * f2 -> Expression()
     * f3 -> ")"
@@ -722,7 +713,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
       String expressionType = n.f2.accept(this, argu);
 	  if(!expressionType.equals("Integer")){
 		//ERROR: expression is not of type "Integer"
-		System.out.println("If condition is not of type Integer");
+		System.out.println("Type error");
 		System.exit(1);
 	  }
       n.f3.accept(this, argu);
@@ -755,7 +746,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 
 	   if (!lhsType.equals(t) || !rhsType.equals(t))
 	   {
-	       System.err.println("ERROR: " + errmsg);
+	       System.out.println("Type error");
 		   System.exit(1);
 	   }
    }
@@ -822,13 +813,13 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
       String _ret=null;
       String lhsType = n.f0.accept(this, argu);
 	  if(!lhsType.equals("Integer[]")){
-		System.err.println("ERROR: expected type Integer[] in lhs of ArrayLookup");
+		System.out.println("Type error");
 		System.exit(1);
 	  }
       n.f1.accept(this, argu);
       String rhsType = n.f2.accept(this, argu);
 	  if(!rhsType.equals("Integer")){
-		System.err.println("ERROR: expected type Integer in rhs of ArrayLookup");
+		System.out.println("Type error");
 		System.exit(1);
 	  }
       n.f3.accept(this, argu);
@@ -844,7 +835,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
       String _ret=null;
       String lhsType = n.f0.accept(this, argu);
 	  if(!lhsType.equals("Integer[]")){
-		System.err.println("ERROR: expected type Integer[] in lhs of ArrayLength");
+		System.out.println("Type error");
 		System.exit(1);
 	  }
       n.f1.accept(this, argu);
@@ -869,11 +860,12 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
       String classType = n.f0.accept(this, argu);
 	  //check if PrimaryExpression is not overshadowed with non-class type
 	  if(!getTypeOfField(classType).equals("Class")){
-		System.err.format("ERROR: Primary expression is not a class type%n");
+		System.out.println("Type error");
+		System.exit(1);
 	  }
 	  //check if PrimaryExpression exists as a class
 	  if(!fieldMap.containsKey(classType)){
-		System.err.format("ERROR: primary expression is not a valid type in MessageSend statement");
+		System.out.println("Type error");
 		System.exit(1);
 	  }
 	  n.f1.accept(this, argu);
@@ -881,18 +873,17 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
       String identName = n.f2.accept(this, argu);
 	
       n.f3.accept(this, argu);
-	  currentParams = new Vector<String>();
+      currentParams.clear();
       n.f4.accept(this, argu);
 	  //make vector of args
-	  Pair result = isMethodOfInheritance(classType, identName, currentParams);
+	Pair result = isMethodOfInheritance(classType, identName, currentParams);
 	  if(!result.first){
 		//Method is not in class or parent classes
-		System.err.format("ERROR: Method %s called from class %s is not a declared method of class %s or its parent classes%n", identName, classType, classType);
+		System.out.println("Type error");
 		System.exit(1);
 	  }
 
 	  _ret = result.second;
-	  currentParams = null;
 
       n.f5.accept(this, argu);
       return _ret;
@@ -939,7 +930,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 			String ident = _ret;
 			_ret = getTypeOfField(_ret);
 			if(_ret.equals("")){
-				System.out.format("Identifier %s not previously declared in a reachable scope%n", ident);
+				System.out.println("Type error");
 				System.exit(1);
 			}
 		}
@@ -996,7 +987,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
    public String visit(ThisExpression n, String argu) {
       String _ret=null;
 	if(currentWorkingClass == null){
-		System.err.format("ERROR: 'this' used in static context%n");
+		System.out.println("Type error");
 		System.exit(1);
 	}
       n.f0.accept(this, argu);
@@ -1018,7 +1009,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
       n.f2.accept(this, argu);
       String expressionType = n.f3.accept(this, argu);
 	if(!expressionType.equals("Integer")){
-		System.err.println("ERROR: Attempted array allocation with non-Integer size"); 
+		System.out.println("Type error");
 		System.exit(1);
 	}
       n.f4.accept(this, argu);
@@ -1040,7 +1031,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 		//checking identifier
 		if(!getTypeOfField(_ret).equals("Class"))
 		{
-			System.err.format("Identifier %s is not of type Class%n", _ret);
+			System.out.println("Type error");
 			System.exit(1);
 		}
 
@@ -1058,7 +1049,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
       n.f0.accept(this, argu);
       String expressionType = n.f1.accept(this, argu);
 	if(!expressionType.equals("Boolean")){
-		System.err.format("ERROR: Not expression used on non-boolean expression%n");
+		System.out.println("Type error");
 		System.exit(1);
 	}
 	_ret = "Boolean";
