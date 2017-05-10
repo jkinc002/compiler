@@ -1,11 +1,8 @@
 import visitor.*;
 import syntaxtree.*;
 import java.util.*;
-import java.util.Stack;
-import java.util.HashMap;
-import java.util.Vector;
 
-public class TranslationVisitor extends GJDepthFirst < String, String > {
+public class TranslationVisitor extends GJDepthFirst < VisitorReturn, String > {
 
     private class Pair {
         Boolean first;
@@ -33,42 +30,65 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
             scope -= 1;
         }
 
-        void print(String s)
+        void printScope()
         {
             for (int i = 0; i < scope; ++i)
             {
                 System.out.print("  ");
             }
+        }
+
+        void println(String s)
+        {
+            printScope();
+            
+            System.out.println(s);
+        }
+
+        void print(String s)
             System.out.print(s);
-            System.out.print("\n");
         }
 
 
     }
 
+    int labelCount = 0;
+    private String newLabel(String s)
+    {
+        labelCount++;
+        return "_l." + s + Integer.toString(labelCount);
+    }
+
+    int tmpCount = 0;
+    private String newTmp(String s)
+    {
+        tmpCount++;
+        return "t." + s + "." + Integer.toString(tmpCount);
+    }
+
     private void printvTables()
     {
-        for (Map.Entry < String, HashMap<String, Integer> > vTableEntry: vTable.entrySet()) {
-            String className = vTableEntry.getKey();
-            HashMap<String, Integer> classVTable = vTableEntry.getValue();
+        for (Map.Entry < String, HashMap<String, VTableEntry> > vTableMapEntry: vTable.entrySet()) {
+            String className = vTableMapEntry.getKey();
+            HashMap<String, VTableEntry> classVTable = vTableMapEntry.getValue();
             Vector<String> methods = new Vector<String>(classVTable.size());
-            for (Map.Entry < String, Integer > classVTableEntry: classVTable.entrySet()) {
+            for (Map.Entry < String, VTableEntry > classVTableEntry: classVTable.entrySet()) {
                 String methodName = classVTableEntry.getKey();
-                Integer index = classVTableEntry.getValue();
+                Integer index = classVTableEntry.getValue().offset;
                 methods.add(index, methodName);
             }
 
-            printer.print("const vmt_" + className);
+            printer.println("const vmt_" + className);
             printer.increaseScope();
             
             for (String methodName : methods)
             {
                 //FIXME: sub classes must print parent name for non-overridden methods
-                printer.print(":" + className + "." + methodName);
+                printer.println(":" + classVTable.get(methodName).definingClass + "." + methodName);
             }
 
             printer.decreaseScope();
-            printer.print("");
+            printer.println("");
             
         }
     }
@@ -125,7 +145,7 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
     Integer >> classRecord = null; //maps class-->field-->offset
     HashMap < String,
     HashMap < String,
-    Integer >> vTable = null; //maps class-->method-->offest
+    VTableEntry >> vTable = null; //maps class-->method-->offest
     String currentWorkingClass = null;
     Printer printer = new Printer();
     int count = 0;
@@ -258,16 +278,28 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
         symbolTable.peek().methods.putAll(childScope.methods);
     }
 
-    public String visit(Goal n, String argu) {
+    class VTableEntry {
+        String definingClass;
+        int offset;
+        
+        public VTableEntry(String definingClass, int offset)
+        {
+            this.definingClass = definingClass;
+            this.offset = offset;
+        }
+    }
+
+    public VisitorReturn visit(Goal n, String argu) {
         symbolTable = new Stack < Scope > ();
         inheritanceMap = new HashMap < String, String > ();
         fieldMap = new HashMap < String, Scope > ();
         currentParams = new Vector < String > ();
         inheritanceMap.put("Object", "Object");
         classRecord = new HashMap<String, HashMap<String, Integer>>();
-        vTable = new HashMap<String, HashMap<String, Integer>>();
+        vTable = new HashMap<String, HashMap<String, VTableEntry>>();
 
-        String _ret = null;
+       
+        VisitorReturn _ret = new VisitorReturn();
         Scope classMap = new Scope();
 
         // Our main class
@@ -320,7 +352,7 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
 
 
             //Loop adds method declarations to field map
-            HashMap < String, Integer > methodOffsetMap = new HashMap < String, Integer > ();
+            HashMap < String, VTableEntry > methodOffsetMap = new HashMap < String, VTableEntry > ();
             if (isSubclass) {
                 methodOffsetMap.putAll(vTable.get(parent));
             }
@@ -339,10 +371,17 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
                     }
 
                 }
-                varMethodMap.addMethod(methNode.f2.f0.tokenImage, methodType, methodParams);
-                if (!methodOffsetMap.containsKey(methNode.f2.f0.tokenImage))
+
+                String methodName = methNode.f2.f0.tokenImage;
+                varMethodMap.addMethod(methodName, methodType, methodParams);
+                VTableEntry e = methodOffsetMap.get(methodName);
+                if (e == null)
                 {
-                    methodOffsetMap.put(methNode.f2.f0.tokenImage,methodOffsetMap.size() * 4);
+                    methodOffsetMap.put(methodName, new VTableEntry(tokenImage, methodOffsetMap.size() * 4));
+                }
+                else
+                {
+                    methodOffsetMap.put(methodName, new VTableEntry(tokenImage, e.offset));
                 }
             }
             vTable.put(tokenImage, methodOffsetMap);
@@ -378,13 +417,18 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      * f17 -> "}"
      */
 
-    public String visit(MainClass n, String argu) {
+    public VisitorReturn visit(MainClass n, String argu) {
         Scope scope = new Scope();
         symbolTable.push(scope);
         scope.addMethod(n.f11.f0.tokenImage, "String[]", null);
         addVarDeclarations(scope, n.f14);
 
-        String _ret = null;
+        printer.println("func Main()");
+        printer.increaseScope();
+
+       
+        VisitorReturn _ret = new VisitorReturn();
+ 
         n.f0.accept(this, argu);
         n.f1.accept(this, argu);
         n.f2.accept(this, argu);
@@ -404,6 +448,8 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
         n.f16.accept(this, argu);
         n.f17.accept(this, argu);
 
+        printer.decreaseScope();
+        printer.println("");
         symbolTable.pop();
         return _ret;
     }
@@ -416,13 +462,15 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      * f4 -> ( MethodDeclaration() )*
      * f5 -> "}"
      */
-    public String visit(ClassDeclaration n, String argu) {
+    public VisitorReturn visit(ClassDeclaration n, String argu) {
         currentWorkingClass = n.f1.f0.tokenImage;
         Scope scope = new Scope();
         symbolTable.push(scope);
         addFieldAndMethodDeclarations(n.f1.f0.tokenImage);
 
-        String _ret = null;
+       
+        VisitorReturn _ret = new VisitorReturn();
+ 
         n.f0.accept(this, argu);
         n.f1.accept(this, argu);
         n.f2.accept(this, argu);
@@ -444,13 +492,15 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      * f6 -> ( MethodDeclaration() )*
      * f7 -> "}"
      */
-    public String visit(ClassExtendsDeclaration n, String argu) {
+    public VisitorReturn visit(ClassExtendsDeclaration n, String argu) {
         currentWorkingClass = n.f1.f0.tokenImage;
         Scope scope = new Scope();
         symbolTable.push(scope);
         addFieldAndMethodDeclarations(n.f1.f0.tokenImage);
 
-        String _ret = null;
+       
+        VisitorReturn _ret = new VisitorReturn();
+ 
         n.f0.accept(this, argu);
         n.f1.accept(this, argu);
         n.f2.accept(this, argu);
@@ -471,8 +521,8 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      * f2 -> ";"
      */
     //DONE HERE
-    public String visit(VarDeclaration n, String argu) {
-        String _ret = null;
+    public VisitorReturn visit(VarDeclaration n, String argu) {
+        VisitorReturn _ret = new VisitorReturn();
         n.f0.accept(this, argu);
         n.f1.accept(this, argu);
         n.f2.accept(this, argu);
@@ -494,28 +544,34 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      * f11 -> ";"
      * f12 -> "}"
      */
-    public String visit(MethodDeclaration n, String argu) {
+    public VisitorReturn visit(MethodDeclaration n, String argu) {
         Scope scope = new Scope();
         symbolTable.push(scope);
-
         //GOAL: check for duplicate parameter names
+        String params;
+        params = "(this";
         if (n.f4.present()) {
             FormalParameterList paramListNode = (FormalParameterList) n.f4.node;
             scope.addField(paramListNode.f0.f1.f0.tokenImage, getTypeString(paramListNode.f0.f0));
+            params = params + ' ' + paramListNode.f0.f1.f0.tokenImage;
 
             for (int l = 0; l < paramListNode.f1.size(); ++l) {
                 FormalParameterRest paramNode = (FormalParameterRest) paramListNode.f1.elementAt(l);
                 scope.addField(paramNode.f1.f1.f0.tokenImage, getTypeString(paramNode.f1.f0));
+                params = params + ' ' + paramNode.f1.f1.f0.tokenImage;
             }
 
         }
+        params = params + ')';
         //AddVar checks for duplicate declarations in the same scope
         addVarDeclarations(scope, n.f7);
 
+        printer.println("func " + currentWorkingClass + '.' + n.f2.f0.tokenImage + params);
+        printer.increaseScope();
 
-        String _ret = null;
+        VisitorReturn _ret = new VisitorReturn();
         n.f0.accept(this, argu);
-        String methodType = n.f1.accept(this, argu);
+        n.f1.accept(this, argu);
         n.f2.accept(this, argu);
         n.f3.accept(this, argu);
         n.f4.accept(this, argu);
@@ -529,6 +585,8 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
         n.f12.accept(this, argu);
 
         symbolTable.pop();
+        printer.decreaseScope();
+        printer.println("");
         return _ret;
     }
 
@@ -536,8 +594,10 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      * f0 -> FormalParameter()
      * f1 -> ( FormalParameterRest() )*
      */
-    public String visit(FormalParameterList n, String argu) {
-        String _ret = null;
+    public VisitorReturn visit(FormalParameterList n, String argu) {
+       
+        VisitorReturn _ret = new VisitorReturn();
+ 
         n.f0.accept(this, argu);
         n.f1.accept(this, argu);
         return _ret;
@@ -547,8 +607,10 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      * f0 -> Type()
      * f1 -> Identifier()
      */
-    public String visit(FormalParameter n, String argu) {
-        String _ret = null;
+    public VisitorReturn visit(FormalParameter n, String argu) {
+       
+        VisitorReturn _ret = new VisitorReturn();
+ 
         n.f0.accept(this, argu);
         n.f1.accept(this, argu);
         return _ret;
@@ -558,8 +620,10 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      * f0 -> ","
      * f1 -> FormalParameter()
      */
-    public String visit(FormalParameterRest n, String argu) {
-        String _ret = null;
+    public VisitorReturn visit(FormalParameterRest n, String argu) {
+       
+        VisitorReturn _ret = new VisitorReturn();
+ 
         n.f0.accept(this, argu);
         n.f1.accept(this, argu);
         return _ret;
@@ -571,10 +635,9 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      *       | IntegerType()
      *       | Identifier()
      */
-    public String visit(Type n, String argu) {
-        String _ret = null;
+    public VisitorReturn visit(Type n, String argu) {
         n.f0.accept(this, argu);
-        _ret = getTypeString(n);
+        VisitorReturn _ret = new VisitorReturn(getTypeString(n));
         return _ret;
     }
 
@@ -583,8 +646,9 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      * f1 -> "["
      * f2 -> "]"
      */
-    public String visit(ArrayType n, String argu) {
-        String _ret = null;
+    public VisitorReturn visit(ArrayType n, String argu) {
+        
+        VisitorReturn _ret = new VisitorReturn();
         n.f0.accept(this, argu);
         n.f1.accept(this, argu);
         n.f2.accept(this, argu);
@@ -594,8 +658,10 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
     /**
      * f0 -> "boolean"
      */
-    public String visit(BooleanType n, String argu) {
-        String _ret = null;
+    public VisitorReturn visit(BooleanType n, String argu) {
+       
+        VisitorReturn _ret = new VisitorReturn();
+ 
         n.f0.accept(this, argu);
         return _ret;
     }
@@ -603,8 +669,10 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
     /**
      * f0 -> "int"
      */
-    public String visit(IntegerType n, String argu) {
-        String _ret = null;
+    public VisitorReturn visit(IntegerType n, String argu) {
+       
+        VisitorReturn _ret = new VisitorReturn();
+ 
         n.f0.accept(this, argu);
         return _ret;
     }
@@ -617,8 +685,10 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      *       | WhileStatement()
      *       | PrintStatement()
      */
-    public String visit(Statement n, String argu) {
-        String _ret = null;
+    public VisitorReturn visit(Statement n, String argu) {
+       
+        VisitorReturn _ret = new VisitorReturn();
+ 
         n.f0.accept(this, argu);
         return _ret;
     }
@@ -628,8 +698,9 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      * f1 -> ( Statement() )*
      * f2 -> "}"
      */
-    public String visit(Block n, String argu) {
-        String _ret = null;
+    public VisitorReturn visit(Block n, String argu) {
+        
+        VisitorReturn _ret = new VisitorReturn();
         n.f0.accept(this, argu);
         n.f1.accept(this, argu);
         n.f2.accept(this, argu);
@@ -642,8 +713,10 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      * f2 -> Expression()
      * f3 -> ";"
      */
-    public String visit(AssignmentStatement n, String argu) {
-        String _ret = null;
+    public VisitorReturn visit(AssignmentStatement n, String argu) {
+       
+        VisitorReturn _ret = new VisitorReturn();
+ 
         n.f0.accept(this, argu);
         n.f1.accept(this, argu);
         n.f2.accept(this, argu);
@@ -660,11 +733,11 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      * f5 -> Expression()
      * f6 -> ";"
      */
-    public String visit(ArrayAssignmentStatement n, String argu) {
+    public VisitorReturn visit(ArrayAssignmentStatement n, String argu) {
         //GOAL: Identifier must be of type "INTEGER[]"
         //	 : Expression inside [] must be of type "INTEGER"
         //	 : Expression on RHS must be of type "INTEGER"
-        String _ret = null;
+        VisitorReturn _ret = new VisitorReturn();
         n.f0.accept(this, argu);
         n.f1.accept(this, argu);
         n.f2.accept(this, argu);
@@ -684,10 +757,10 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      * f5 -> "else"
      * f6 -> Statement()
      */
-    public String visit(IfStatement n, String argu) {
+    public VisitorReturn visit(IfStatement n, String argu) {
         //GOAL:	expression is of type "Boolean"
         //	 :	Any Statement errors should resolve on their own, not here
-        String _ret = null;
+        VisitorReturn _ret = new VisitorReturn();
         n.f0.accept(this, argu);
         n.f1.accept(this, argu);
         n.f2.accept(this, argu);
@@ -705,10 +778,10 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      * f3 -> ")"
      * f4 -> Statement()
      */
-    public String visit(WhileStatement n, String argu) {
+    public VisitorReturn visit(WhileStatement n, String argu) {
         //GOAL:	expression is of type "Boolean"
         //	 :	Any Statement errors should resolve on their own, not here
-        String _ret = null;
+        VisitorReturn _ret = new VisitorReturn();
         n.f0.accept(this, argu);
         n.f1.accept(this, argu);
         n.f2.accept(this, argu);
@@ -724,9 +797,9 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      * f3 -> ")"
      * f4 -> ";"
      */
-    public String visit(PrintStatement n, String argu) {
+    public VisitorReturn visit(PrintStatement n, String argu) {
         //GOAL:	expression must be of type Integer
-        String _ret = null;
+        VisitorReturn _ret = new VisitorReturn();
         n.f0.accept(this, argu);
         n.f1.accept(this, argu);
         n.f2.accept(this, argu);
@@ -746,32 +819,27 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      *       | MessageSend()
      *       | PrimaryExpression()
      */
-    public String visit(Expression n, String argu) {
-        String _ret = null;
-        _ret = n.f0.accept(this, argu);
+    public VisitorReturn visit(Expression n, String argu) {
+        VisitorReturn _ret = n.f0.accept(this, argu);
         return _ret;
     }
 
     private void typeCheckBinExpr(Node n0, Node n1, Node n2, String argu, String t, String errmsg) {
-        String lhsType = n0.accept(this, argu);
+        n0.accept(this, argu);
         n1.accept(this, argu);
-        String rhsType = n2.accept(this, argu);
+        n2.accept(this, argu);
 
-        if (!lhsType.equals(t) || !rhsType.equals(t)) {
-            System.out.println("Type error");
-            System.exit(1);
-        }
     }
-
 
     /**
      * f0 -> PrimaryExpression()
      * f1 -> "&&"
      * f2 -> PrimaryExpression()
      */
-    public String visit(AndExpression n, String argu) {
+    public VisitorReturn visit(AndExpression n, String argu) {
         typeCheckBinExpr(n.f0, n.f1, n.f2, argu, "Boolean", "Expected boolean types for operator &&");
-        return "Boolean";
+        VisitorReturn _ret = new VisitorReturn("Boolean");
+        return _ret;
     }
 
     /**
@@ -779,9 +847,10 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      * f1 -> "<"
      * f2 -> PrimaryExpression()
      */
-    public String visit(CompareExpression n, String argu) {
+    public VisitorReturn visit(CompareExpression n, String argu) {
         typeCheckBinExpr(n.f0, n.f1, n.f2, argu, "Integer", "Expected Integer types for operator <");
-        return "Boolean";
+        VisitorReturn _ret = new VisitorReturn("Boolean");
+        return _ret;
     }
 
     /**
@@ -789,9 +858,12 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      * f1 -> "+"
      * f2 -> PrimaryExpression()
      */
-    public String visit(PlusExpression n, String argu) {
+    public VisitorReturn visit(PlusExpression n, String argu) {
         typeCheckBinExpr(n.f0, n.f1, n.f2, argu, "Integer", "Expected Integer types for operator +");
-        return "Integer";
+       
+        VisitorReturn _ret = new VisitorReturn("Integer");
+        return _ret;
+ 
     }
 
     /**
@@ -799,9 +871,11 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      * f1 -> "-"
      * f2 -> PrimaryExpression()
      */
-    public String visit(MinusExpression n, String argu) {
+    public VisitorReturn visit(MinusExpression n, String argu) {
         typeCheckBinExpr(n.f0, n.f1, n.f2, argu, "Integer", "Expected Integer types for operator -");
-        return "Integer";
+        VisitorReturn _ret = new VisitorReturn("Integer");
+        return _ret;
+
     }
 
     /**
@@ -809,9 +883,10 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      * f1 -> "*"
      * f2 -> PrimaryExpression()
      */
-    public String visit(TimesExpression n, String argu) {
+    public VisitorReturn visit(TimesExpression n, String argu) {
         typeCheckBinExpr(n.f0, n.f1, n.f2, argu, "Integer", "Expected Integer types for operator *");
-        return "Integer";
+        VisitorReturn _ret = new VisitorReturn("Integer");
+        return _ret;
 
     }
 
@@ -821,13 +896,13 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      * f2 -> PrimaryExpression()
      * f3 -> "]"
      */
-    public String visit(ArrayLookup n, String argu) {
-        String _ret = null;
+    public VisitorReturn visit(ArrayLookup n, String argu) {
+        VisitorReturn _ret = new VisitorReturn("Integer");
         n.f0.accept(this, argu);
         n.f1.accept(this, argu);
         n.f2.accept(this, argu);
         n.f3.accept(this, argu);
-        return "Integer";
+        return _ret;
     }
 
     /**
@@ -835,12 +910,12 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      * f1 -> "."
      * f2 -> "length"
      */
-    public String visit(ArrayLength n, String argu) {
-        String _ret = null;
+    public VisitorReturn visit(ArrayLength n, String argu) {
+        VisitorReturn _ret = new VisitorReturn("Integer");
         n.f0.accept(this, argu);
         n.f1.accept(this, argu);
         n.f2.accept(this, argu);
-        return "Integer";
+        return _ret;
     }
 
     /**
@@ -851,25 +926,34 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      * f4 -> ( ExpressionList() )?
      * f5 -> ")"
      */
-    public String visit(MessageSend n, String argu) {
-        //GOAL:	PrimaryExpression's type is of type Class
-        //	 : 	PrimaryExpression's id is not overshadowed
-        //	 :	Identifier is a method of PrimaryExpression's class type
-        String _ret = null;
-
-        String classType = n.f0.accept(this, argu);
+    public VisitorReturn visit(MessageSend n, String argu) {
+        //GOAL:	Get offset of method call
+        //    : 
+        VisitorReturn primExpr = n.f0.accept(this, argu);
+        String petmp = primExpr.getTmp();
+        String classType = primExpr.getType();
         n.f1.accept(this, argu);
-
-        String identName = n.f2.accept(this, argu);
-
+        String identName = n.f2.accept(this, argu).getType();
+        
         n.f3.accept(this, argu);
         currentParams.clear();
-        n.f4.accept(this, argu);
+
+        String functmp = newTmp("msgsendfunc");
+        String rettmp = newTmp("msgsendret");
+        printer.println(functmp + " = " + "[" + petmp + "]");
+        printer.println(functmp + " = " + "[" functmp + "+" + Integer.toString(offset) + "]");
+        printer.printScope();
+        printer.print(rettmp + " = call " + functmp + "(" + petmp);
+        n.f4.accept(this, argu); // print expression list
+        printer.print(")\n");
+
+        
         //make vector of args
         Pair result = isMethodOfInheritance(classType, identName, currentParams);
 
-        _ret = result.second;
-
+        VisitorReturn _ret = new VisitorReturn(result.second);
+        _ret.addTmp(rettmp);
+            
         n.f5.accept(this, argu);
         return _ret;
     }
@@ -878,9 +962,9 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      * f0 -> Expression()
      * f1 -> ( ExpressionRest() )*
      */
-    public String visit(ExpressionList n, String argu) {
-        String _ret = null;
-        currentParams.add(n.f0.accept(this, argu));
+    public VisitorReturn visit(ExpressionList n, String argu) {
+        VisitorReturn  _ret = new VisitorReturn();
+        currentParams.add(n.f0.accept(this, argu).getType());
         n.f1.accept(this, argu);
         return _ret;
     }
@@ -889,10 +973,10 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      * f0 -> ","
      * f1 -> Expression()
      */
-    public String visit(ExpressionRest n, String argu) {
-        String _ret = null;
+    public VisitorReturn visit(ExpressionRest n, String argu) {
+        VisitorReturn _ret = new VisitorReturn();
         n.f0.accept(this, argu);
-        currentParams.add(n.f1.accept(this, argu));
+        currentParams.add(n.f1.accept(this, argu).getType());
         return _ret;
     }
 
@@ -907,12 +991,11 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      *       | NotExpression()
      *       | BracketExpression()
      */
-    public String visit(PrimaryExpression n, String argu) {
-        String _ret = null;
-        _ret = n.f0.accept(this, argu);
+    public VisitorReturn visit(PrimaryExpression n, String argu) {
+        VisitorReturn _ret = n.f0.accept(this, argu);
 
         if (n.f0.which == 3) { //is identifier node
-            _ret = getTypeOfField(_ret);
+            _ret.setType(getTypeOfField(_ret.getType()));
         }
 
         return _ret;
@@ -921,39 +1004,35 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
     /**
      * f0 -> <INTEGER_LITERAL>
      */
-    public String visit(IntegerLiteral n, String argu) {
-        String _ret = null;
+    public VisitorReturn visit(IntegerLiteral n, String argu) {
         n.f0.accept(this, argu);
-        _ret = "Integer";
+        VisitorReturn _ret = new VisitorReturn("Integer");
         return _ret;
     }
 
     /**
      * f0 -> "true"
      */
-    public String visit(TrueLiteral n, String argu) {
-        String _ret = null;
+    public VisitorReturn visit(TrueLiteral n, String argu) {
         n.f0.accept(this, argu);
-        _ret = "Boolean";
+        VisitorReturn _ret = new VisitorReturn("Boolean");
         return _ret;
     }
 
     /**
      * f0 -> "false"
      */
-    public String visit(FalseLiteral n, String argu) {
-        String _ret = null;
+    public VisitorReturn visit(FalseLiteral n, String argu) {
         n.f0.accept(this, argu);
-        _ret = "Boolean";
+        VisitorReturn _ret = new VisitorReturn("Boolean");
         return _ret;
     }
 
     /**
      * f0 -> <IDENTIFIER>
      */
-    public String visit(Identifier n, String argu) {
-        String _ret = null;
-        _ret = n.f0.tokenImage;
+    public VisitorReturn visit(Identifier n, String argu) {
+        VisitorReturn _ret = new VisitorReturn(n.f0.tokenImage);
         n.f0.accept(this, argu);
         return _ret;
     }
@@ -961,14 +1040,9 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
     /**
      * f0 -> "this"
      */
-    public String visit(ThisExpression n, String argu) {
-        String _ret = null;
-        if (currentWorkingClass == null) {
-            System.out.println("Type error");
-            System.exit(1);
-        }
+    public VisitorReturn visit(ThisExpression n, String argu) {
         n.f0.accept(this, argu);
-        _ret = currentWorkingClass;
+        VisitorReturn _ret = new VisitorReturn(currentWorkingClass);
         return _ret;
     }
 
@@ -979,14 +1053,13 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      * f3 -> Expression()
      * f4 -> "]"
      */
-    public String visit(ArrayAllocationExpression n, String argu) {
-        String _ret = null;
+    public VisitorReturn visit(ArrayAllocationExpression n, String argu) {
         n.f0.accept(this, argu);
         n.f1.accept(this, argu);
         n.f2.accept(this, argu);
         n.f3.accept(this, argu);
         n.f4.accept(this, argu);
-        _ret = "Integer[]";
+        VisitorReturn _ret = new VisitorReturn("Integer[]");
         return _ret;
     }
 
@@ -996,11 +1069,22 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      * f2 -> "("
      * f3 -> ")"
      */
-    public String visit(AllocationExpression n, String argu) {
-        //GOAL: check if Identifier is a created class
-        String _ret = null;
+    public VisitorReturn visit(AllocationExpression n, String argu) {
+        // GOAL: allocate space for an object and assign a vTable
+        String tmp = newTmp("alloc");
+        String label = newLabel("allocgood");
+        String className = n.f1.f0.tokenImage;
+        int numFields = classRecord.get(className).get("_totalnumfields");
+        
+        printer.println(tmp + " = HeapAllocZ(" + Integer.toString((numFields+1) * 4) + ")");
+        printer.println("[" + tmp + "] = :vmt_" + className);
+        printer.println("if " + tmp + " goto :" + label);
+        printer.println("Error(\"null pointer\")");
+        printer.println(label + ":");
+        
         n.f0.accept(this, argu);
-        _ret = n.f1.accept(this, argu);
+        VisitorReturn _ret = n.f1.accept(this, argu);
+        _ret.addTmp(tmp);
         n.f2.accept(this, argu);
         n.f3.accept(this, argu);
         return _ret;
@@ -1010,11 +1094,10 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      * f0 -> "!"
      * f1 -> Expression()
      */
-    public String visit(NotExpression n, String argu) {
-        String _ret = null;
+    public VisitorReturn visit(NotExpression n, String argu) {
+        VisitorReturn _ret = new VisitorReturn("Boolean");
         n.f0.accept(this, argu);
         n.f1.accept(this, argu);
-        _ret = "Boolean";
         return _ret;
     }
 
@@ -1023,10 +1106,9 @@ public class TranslationVisitor extends GJDepthFirst < String, String > {
      * f1 -> Expression()
      * f2 -> ")"
      */
-    public String visit(BracketExpression n, String argu) {
-        String _ret = null;
+    public VisitorReturn visit(BracketExpression n, String argu) {
         n.f0.accept(this, argu);
-        _ret = n.f1.accept(this, argu);
+        VisitorReturn _ret = n.f1.accept(this, argu);
         n.f2.accept(this, argu);
         return _ret;
     }
