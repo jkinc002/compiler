@@ -1,0 +1,5 @@
+*.class
+phase1/
+*.jj
+*.tgz
+*.jar

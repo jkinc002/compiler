@@ -7,22 +7,7 @@ class Main {
 class A {
 	public int run() {
 		int x;
-		B b;
-		b = b.cow(b);
+		x = 1;
 		return x;
 	}
 }
-
-class B {
-	int i;
-	public int cow(B j) {
-		int x;
-		return x;
-	}
-
-
-
-}
-
-class C extends B {}
-
