@@ -34,7 +34,7 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
         {
             for (int i = 0; i < scope; ++i)
             {
-                System.out.print("  ");
+                System.out.print("   ");
             }
         }
 
@@ -63,8 +63,8 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
     int tmpCount = 0;
     private String newTmp(String s)
     {
-        tmpCount++;
-        return "t." + s + "." + Integer.toString(tmpCount);
+        String ret = Integer.toString(tmpCount++);
+        return "t." + ret;
     }
 
     private void printvTables()
@@ -449,8 +449,10 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
         n.f16.accept(this, argu);
         n.f17.accept(this, argu);
 
+        printer.println("ret");
         printer.decreaseScope();
         printer.println("");
+        tmpCount = 0;
         symbolTable.pop();
         return _ret;
     }
@@ -498,7 +500,6 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
         Scope scope = new Scope();
         symbolTable.push(scope);
         addFieldAndMethodDeclarations(n.f1.f0.tokenImage);
-
        
         VisitorReturn _ret = new VisitorReturn();
  
@@ -546,9 +547,10 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
      * f12 -> "}"
      */
     public VisitorReturn visit(MethodDeclaration n, VisitorReturn argu) {
+        //Jordan - added vapor return instruction line
+        //FIXME: review code
         Scope scope = new Scope();
         symbolTable.push(scope);
-        //GOAL: check for duplicate parameter names
         String params;
         params = "(this";
         if (n.f4.present()) {
@@ -581,13 +583,15 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
         n.f7.accept(this, argu);
         n.f8.accept(this, argu);
         n.f9.accept(this, argu);
-        n.f10.accept(this, argu);
+        String retExpression = n.f10.accept(this, argu).getTmp();
         n.f11.accept(this, argu);
         n.f12.accept(this, argu);
 
         symbolTable.pop();
+        printer.println("ret "+retExpression);
         printer.decreaseScope();
         printer.println("");
+        tmpCount = 0;
         return _ret;
     }
 
@@ -596,7 +600,6 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
      * f1 -> ( FormalParameterRest() )*
      */
     public VisitorReturn visit(FormalParameterList n, VisitorReturn argu) {
-       
         VisitorReturn _ret = new VisitorReturn();
  
         n.f0.accept(this, argu);
@@ -609,7 +612,6 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
      * f1 -> Identifier()
      */
     public VisitorReturn visit(FormalParameter n, VisitorReturn argu) {
-       
         VisitorReturn _ret = new VisitorReturn();
  
         n.f0.accept(this, argu);
@@ -671,7 +673,6 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
      * f0 -> "int"
      */
     public VisitorReturn visit(IntegerType n, VisitorReturn argu) {
-       
         VisitorReturn _ret = new VisitorReturn();
  
         n.f0.accept(this, argu);
@@ -687,7 +688,6 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
      *       | PrintStatement()
      */
     public VisitorReturn visit(Statement n, VisitorReturn argu) {
-       
         VisitorReturn _ret = new VisitorReturn();
  
         n.f0.accept(this, argu);
@@ -700,7 +700,7 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
      * f2 -> "}"
      */
     public VisitorReturn visit(Block n, VisitorReturn argu) {
-        
+        //FIXME: might be possible to handle statement order better here
         VisitorReturn _ret = new VisitorReturn();
         n.f0.accept(this, argu);
         n.f1.accept(this, argu);
@@ -715,13 +715,18 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
      * f3 -> ";"
      */
     public VisitorReturn visit(AssignmentStatement n, VisitorReturn argu) {
-       
-        VisitorReturn _ret = new VisitorReturn();
+        //Jordan
  
-        n.f0.accept(this, argu);
+        //lhsIdent can be a tmp identifier or a raw identifier
+        String lhsIdent = n.f0.accept(this, argu).getTmp();
         n.f1.accept(this, argu);
-        n.f2.accept(this, argu);
+        //rhsExpression can be a: tmp id, raw id (maybe), or an integer literal
+        String rhsExpression = n.f2.accept(this, argu).getTmp();
         n.f3.accept(this, argu);
+        printer.println(lhsIdent + " = " + rhsExpression);
+
+        VisitorReturn _ret = new VisitorReturn();
+        _ret.addTmp(lhsIdent);
         return _ret;
     }
 
@@ -735,19 +740,45 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
      * f6 -> ";"
      */
     public VisitorReturn visit(ArrayAssignmentStatement n, VisitorReturn argu) {
-        //GOAL: Identifier must be of type "INTEGER[]"
-        //	 : Expression inside [] must be of type "INTEGER"
-        //	 : Expression on RHS must be of type "INTEGER"
+        //Jordan
+        //FIXME: review code
         VisitorReturn _ret = new VisitorReturn();
-        n.f0.accept(this, argu);
+        String arrayStart = n.f0.accept(this, argu).getTmp();
         n.f1.accept(this, argu);
-        n.f2.accept(this, argu);
+        String arrayIndex = n.f2.accept(this, argu).getTmp();
         n.f3.accept(this, argu);
         n.f4.accept(this, argu);
-        n.f5.accept(this, argu);
+        String lhsExpression = n.f5.accept(this, argu).getTmp();
         n.f6.accept(this, argu);
+
+        //begin array bounds check
+        String goodCheck1 = newLabel("l'");
+        String s = newTmp("s");
+        String indexOk = newTmp("ok");
+        printer.println(s + " = [" + arrayStart + ']');
+        printer.println(indexOk + " = Lts(" + arrayIndex + ' ' + s + ')');
+        printer.println("if " + indexOk + " goto :" + goodCheck1);
+        printer.println("Error(\"Array index out of bounds\")");
+
+        String goodCheck2 = newLabel("l");
+        printer.println(goodCheck1 + ": " + indexOk + " = Lts(-1, " + arrayIndex + ')');
+        printer.println("if " + indexOk + " goto :" + goodCheck2);
+        printer.println("Error(\"Array index out of bounds\")");
+
+        String offsetTmp = newTmp("o");
+        String destTmp = newTmp("d");
+        String resultTmp = newTmp("r");
+        printer.println(goodCheck2 + ": " + offsetTmp + " = MulS(" + arrayIndex + " 4)");
+        printer.println(destTmp + " = Add(" + arrayStart + offsetTmp + ')');
+        printer.println(resultTmp + " = [" + destTmp + "+4]");
+        //end array bounds check
+        //
+        //generate vapor code
+        printer.println('['+destTmp+"] = "+lhsExpression);
+        
         return _ret;
     }
+    
 
     /**
      * f0 -> "if"
@@ -759,16 +790,35 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
      * f6 -> Statement()
      */
     public VisitorReturn visit(IfStatement n, VisitorReturn argu) {
-        //GOAL:	expression is of type "Boolean"
-        //	 :	Any Statement errors should resolve on their own, not here
+        //Jordan
+        //FIXME: review code
         VisitorReturn _ret = new VisitorReturn();
+
         n.f0.accept(this, argu);
         n.f1.accept(this, argu);
-        n.f2.accept(this, argu);
+        String conditionTemp = n.f2.accept(this, argu).getTmp();
+
+        //beginning of if case here
+        String elseLabel = newLabel("else"); 
+        printer.println("if0 " + conditionTemp + " goto :" + elseLabel);
+        printer.increaseScope();
+
         n.f3.accept(this, argu);
         n.f4.accept(this, argu);
+
+        String endIfLabel = newLabel("endIf");
+        printer.println("goto :" + endIfLabel);
+        printer.decreaseScope();
+        //beginning of else case here
+        printer.println(elseLabel + ':');
+        printer.increaseScope();
+
         n.f5.accept(this, argu);
         n.f6.accept(this, argu);
+
+        printer.decreaseScope();
+        //end of whole if statement here
+        printer.println(endIfLabel + ':');
         return _ret;
     }
 
@@ -780,14 +830,34 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
      * f4 -> Statement()
      */
     public VisitorReturn visit(WhileStatement n, VisitorReturn argu) {
-        //GOAL:	expression is of type "Boolean"
-        //	 :	Any Statement errors should resolve on their own, not here
+        //Jordan
+        //FIXME: review code
         VisitorReturn _ret = new VisitorReturn();
         n.f0.accept(this, argu);
         n.f1.accept(this, argu);
-        n.f2.accept(this, argu);
+
+        String condCheck = newLabel("condCheck");
+        //label for condition check begins while statement
+        printer.println(condCheck+':');
+        printer.increaseScope();
+
+        //begin condition check
+        String conditional = n.f2.accept(this, argu).getTmp();
         n.f3.accept(this, argu);
+
+        String endWhile = newLabel("endWhile");
+        printer.println("if0 "+conditional+" goto :"+endWhile);
+        //end condition check
+        //
+        //statements inside while are generated by n.f4.accept
         n.f4.accept(this, argu);
+
+        //goto top of while to check condition again
+        printer.println("goto :"+condCheck);
+        printer.decreaseScope();
+        //endOfWhile label ends while statement
+        printer.println(endWhile+':');
+
         return _ret;
     }
 
@@ -799,13 +869,17 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
      * f4 -> ";"
      */
     public VisitorReturn visit(PrintStatement n, VisitorReturn argu) {
-        //GOAL:	expression must be of type Integer
+        //Jordan
+        //FIXME: review code
         VisitorReturn _ret = new VisitorReturn();
         n.f0.accept(this, argu);
         n.f1.accept(this, argu);
-        n.f2.accept(this, argu);
+        String tmpExpression = n.f2.accept(this, argu).getTmp();
         n.f3.accept(this, argu);
         n.f4.accept(this, argu);
+        
+        //Generate this
+        printer.println("PrintIntS("+tmpExpression+')');
         return _ret;
     }
 
@@ -906,7 +980,7 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
      * f3 -> "]"
      */
     public VisitorReturn visit(ArrayLookup n, VisitorReturn argu) {
-        //handle
+        //FIXME: make sure _ret is given the correct value to return 
         VisitorReturn _ret = new VisitorReturn("Integer");
         String goodLookup = newLabel("goodLookup");
         String badLookup = newLabel("badLookup");
