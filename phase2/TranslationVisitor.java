@@ -453,6 +453,7 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
         printer.decreaseScope();
         printer.println("");
         tmpCount = 0;
+        labelCount = 0;
         symbolTable.pop();
         return _ret;
     }
@@ -592,6 +593,7 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
         printer.decreaseScope();
         printer.println("");
         tmpCount = 0;
+        labelCount = 0;
         return _ret;
     }
 
@@ -716,6 +718,7 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
      */
     public VisitorReturn visit(AssignmentStatement n, VisitorReturn argu) {
         //Jordan
+        //FIXME: review code
  
         //lhsIdent can be a tmp identifier or a raw identifier
         String lhsIdent = n.f0.accept(this, argu).getTmp();
@@ -769,7 +772,7 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
         String destTmp = newTmp("d");
         String resultTmp = newTmp("r");
         printer.println(goodCheck2 + ": " + offsetTmp + " = MulS(" + arrayIndex + " 4)");
-        printer.println(destTmp + " = Add(" + arrayStart + offsetTmp + ')');
+        printer.println(destTmp + " = Add(" + arrayStart +' '+ offsetTmp + ')');
         printer.println(resultTmp + " = [" + destTmp + "+4]");
         //end array bounds check
         //
@@ -982,35 +985,35 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
     public VisitorReturn visit(ArrayLookup n, VisitorReturn argu) {
         //FIXME: make sure _ret is given the correct value to return 
         VisitorReturn _ret = new VisitorReturn("Integer");
-        String goodLookup = newLabel("goodLookup");
-        String badLookup = newLabel("badLookup");
-        String lookupTmp = newTmp("ArrayLookup");
-        String arrayStart =  n.f0.accept(this, argu).getTmp();
+        String b =  n.f0.accept(this, argu).getTmp();
         n.f1.accept(this, argu);
-        String indexValue = n.f2.accept(this, argu).getTmp();
+        String i = n.f2.accept(this, argu).getTmp();
         n.f3.accept(this, argu);
 
         //Arracy accuracy check
-        String lessThanTmp = newTmp("lessThan");
-        String greaterThanTmp = newTmp("greaterThan");
-        String maxsizetmp = newTmp("maxSize");
-        printer.println(maxsizetmp + " = [" + arrayStart + ']');
-        printer.println(greaterThanTmp + " = LtS(" + indexValue + " " + maxsizetmp + ")");
-        printer.println("if0 " + greaterThanTmp + "goto :" + badLookup);
-        printer.println(lessThanTmp + " = LtS(" + indexValue + " 0)");
-        printer.println("if " + lessThanTmp + "goto :" + badLookup);
-        printer.println("goto " + goodLookup);
+        String s = newTmp("s");
+        String o = newTmp("o");
+        String d = newTmp("d");
 
-        //print errors
-        printer.println(badLookup + ":");
+        printer.println(s+" = ["+b+']');
+
+        String goodCheck1 = newLabel("l'");
+        String indexOk = newTmp("ok");
+        printer.println("if "+indexOk+" goto :"+goodCheck1);
         printer.println("Error(\"Array index out of bounds\")");
+        printer.println(goodCheck1+": "+indexOk+" = LtS(-1 "+i+')');
 
-        //-actual array lookup
-        printer.println(goodLookup + ":");
-        printer.println(lookupTmp + " = MulS(" + indexValue + " 4)");
-        printer.println(lookupTmp + " = Add(" + lookupTmp + " 4)");
-        printer.println(lookupTmp + " = [" + arrayStart + "+" + lookupTmp + "]");
-        
+        String goodCheck2 = newLabel("l");
+        printer.println("if "+indexOk+" goto :"+goodCheck2);
+        printer.println("Error(\"Array index out of bounds\")");
+        printer.println(goodCheck2+": "+o+" = MulS("+i+"4)");
+        printer.println(d+" = Add("+b+' '+o+')');
+
+        //Array lookup
+        String arrLookResult = newTmp("arrLookResult");
+        printer.println(arrLookResult + " = ["+d+"+"+4+"]");
+        _ret.addTmp(arrLookResult);
+
         return _ret;
     }
 
