@@ -295,7 +295,7 @@ public class TypecheckVisitor extends GJDepthFirst<String, String> {
 	   n.f1.accept(this, argu);
 	   n.f2.accept(this, argu);
 	//program successful
-	System.out.println("Program type checked successfully");
+	//System.out.println("Program type checked successfully");
        return _ret;
      }   
  /**

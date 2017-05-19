@@ -53,6 +53,15 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
 
     }
 
+    public String fieldToTmp(String fieldName)
+    {
+        String temp1 = newTmp("field");
+        Integer offset = classRecord.get(currentWorkingClass).get(fieldName) * 4 + 4;
+        String o = Integer.toString(offset);
+        printer.println(temp1 + " = [this+"+ o+']');
+        return temp1;
+    }
+
     int labelCount = 0;
     private String newLabel(String s)
     {
@@ -72,11 +81,11 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
         for (Map.Entry < String, HashMap<String, VTableEntry> > vTableMapEntry: vTable.entrySet()) {
             String className = vTableMapEntry.getKey();
             HashMap<String, VTableEntry> classVTable = vTableMapEntry.getValue();
-            Vector<String> methods = new Vector<String>(classVTable.size());
+            String[] methods = new String[classVTable.size()];
             for (Map.Entry < String, VTableEntry > classVTableEntry: classVTable.entrySet()) {
                 String methodName = classVTableEntry.getKey();
                 Integer index = classVTableEntry.getValue().offset;
-                methods.add(index, methodName);
+                methods[index] = methodName;
             }
 
             printer.println("const vmt_" + className);
@@ -137,16 +146,10 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
     }
 
     Stack < Scope > symbolTable = null;
-    HashMap < String,
-    String > inheritanceMap = null;
-    HashMap < String,
-    Scope > fieldMap = null;
-    HashMap < String,
-    HashMap < String,
-    Integer >> classRecord = null; //maps class-->field-->offset
-    HashMap < String,
-    HashMap < String,
-    VTableEntry >> vTable = null; //maps class-->method-->offest
+    HashMap < String,String > inheritanceMap = null;
+    HashMap < String,Scope > fieldMap = null;
+    HashMap < String,HashMap < String,Integer >> classRecord = null; //maps class-->field-->offset
+    HashMap < String,HashMap < String,VTableEntry >> vTable = null; //maps class-->method-->offest
     String currentWorkingClass = null;
     Printer printer = new Printer();
     int count = 0;
@@ -346,7 +349,7 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
                 varMethodMap.addField(varNode.f1.f0.tokenImage, getTypeString(varNode.f0));
                 //populate fieldOffsetMap depending on if subclass or not
 
-                fieldOffsetMap.put(varNode.f1.f0.tokenImage, (parentSize + j + 1) * 4);
+                fieldOffsetMap.put(varNode.f1.f0.tokenImage, (parentSize + j));
             }
             fieldOffsetMap.put("_totalnumfields", varFields.size() + parentSize);
             classRecord.put(tokenImage, fieldOffsetMap);
@@ -378,7 +381,7 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
                 VTableEntry e = methodOffsetMap.get(methodName);
                 if (e == null)
                 {
-                    methodOffsetMap.put(methodName, new VTableEntry(tokenImage, methodOffsetMap.size() * 4));
+                    methodOffsetMap.put(methodName, new VTableEntry(tokenImage, methodOffsetMap.size()));
                 }
                 else
                 {
@@ -453,7 +456,6 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
         printer.decreaseScope();
         printer.println("");
         tmpCount = 0;
-        labelCount = 0;
         symbolTable.pop();
         return _ret;
     }
@@ -593,7 +595,6 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
         printer.decreaseScope();
         printer.println("");
         tmpCount = 0;
-        labelCount = 0;
         return _ret;
     }
 
@@ -721,14 +722,24 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
         //FIXME: review code
  
         //lhsIdent can be a tmp identifier or a raw identifier
-        String lhsIdent = n.f0.accept(this, argu).getTmp();
+        VisitorReturn _ret = n.f0.accept(this, argu);
+        String lhsIdent = _ret.getTmp();
         n.f1.accept(this, argu);
         //rhsExpression can be a: tmp id, raw id (maybe), or an integer literal
         String rhsExpression = n.f2.accept(this, argu).getTmp();
         n.f3.accept(this, argu);
-        printer.println(lhsIdent + " = " + rhsExpression);
+        if(!_ret.isField)
+        {
+            printer.println(lhsIdent + " = " + rhsExpression);
+        }
+        else
+        {
+            //calc offset
+            Integer offset = classRecord.get(currentWorkingClass).get(lhsIdent)*4 + 4;
+            String o = Integer.toString(offset);
+            printer.println("[this+"+o+"] = "+rhsExpression);
+        }
 
-        VisitorReturn _ret = new VisitorReturn();
         _ret.addTmp(lhsIdent);
         return _ret;
     }
@@ -746,7 +757,12 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
         //Jordan
         //FIXME: review code
         VisitorReturn _ret = new VisitorReturn();
-        String arrayStart = n.f0.accept(this, argu).getTmp();
+        VisitorReturn ident = n.f0.accept(this, argu);
+        String arrayStart = ident.getTmp();
+        if (ident.isField)
+        {
+            arrayStart = fieldToTmp(arrayStart);
+        }
         n.f1.accept(this, argu);
         String arrayIndex = n.f2.accept(this, argu).getTmp();
         n.f3.accept(this, argu);
@@ -755,18 +771,19 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
         n.f6.accept(this, argu);
 
         //begin array bounds check
-        String goodCheck1 = newLabel("l'");
+        String goodCheck1 = newLabel("ll");
         String s = newTmp("s");
         String indexOk = newTmp("ok");
+        
         printer.println(s + " = [" + arrayStart + ']');
-        printer.println(indexOk + " = Lts(" + arrayIndex + ' ' + s + ')');
+        printer.println(indexOk + " = LtS(" + arrayIndex + ' ' + s + ')');
         printer.println("if " + indexOk + " goto :" + goodCheck1);
-        printer.println("Error(\"Array index out of bounds\")");
+        printer.println("Error(\"array index out of bounds\")");
 
         String goodCheck2 = newLabel("l");
-        printer.println(goodCheck1 + ": " + indexOk + " = Lts(-1, " + arrayIndex + ')');
+        printer.println(goodCheck1 + ": " + indexOk + " = LtS(-1 " + arrayIndex + ')');
         printer.println("if " + indexOk + " goto :" + goodCheck2);
-        printer.println("Error(\"Array index out of bounds\")");
+        printer.println("Error(\"array index out of bounds\")");
 
         String offsetTmp = newTmp("o");
         String destTmp = newTmp("d");
@@ -997,16 +1014,17 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
 
         printer.println(s+" = ["+b+']');
 
-        String goodCheck1 = newLabel("l'");
+        String goodCheck1 = newLabel("ll");
         String indexOk = newTmp("ok");
+        printer.println(indexOk+" = LtS("+i+' '+s+')');
         printer.println("if "+indexOk+" goto :"+goodCheck1);
-        printer.println("Error(\"Array index out of bounds\")");
+        printer.println("Error(\"array index out of bounds\")");
         printer.println(goodCheck1+": "+indexOk+" = LtS(-1 "+i+')');
 
         String goodCheck2 = newLabel("l");
         printer.println("if "+indexOk+" goto :"+goodCheck2);
-        printer.println("Error(\"Array index out of bounds\")");
-        printer.println(goodCheck2+": "+o+" = MulS("+i+"4)");
+        printer.println("Error(\"array index out of bounds\")");
+        printer.println(goodCheck2+": "+o+" = MulS("+i+" 4)");
         printer.println(d+" = Add("+b+' '+o+')');
 
         //Array lookup
@@ -1056,7 +1074,7 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
         String functmp = newTmp("msgsendfunc");
         String rettmp = newTmp("msgsendret");
         VisitorReturn paramsList = n.f4.accept(this, argu); // print expression list
-        Integer offset = vTable.get(primExpr.getType()).get(identName).offset;
+        Integer offset = vTable.get(primExpr.getType()).get(identName).offset * 4;
         printer.println(functmp + " = " + "[" + petmp + "]");
         printer.println(functmp + " = " + "[" + functmp + "+" + Integer.toString(offset) + "]");
         printer.printScope();
@@ -1123,6 +1141,10 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
 
         if (n.f0.which == 3) { //is identifier node
             _ret.setType(getTypeOfField(_ret.getType()));
+            if(_ret.isField)
+            {
+                _ret.tmps.set(0,fieldToTmp(_ret.getTmp()));
+            }
         }
 
         return _ret;
@@ -1165,6 +1187,10 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
         //handled
         VisitorReturn _ret = new VisitorReturn(n.f0.tokenImage, n.f0.tokenImage);
         n.f0.accept(this, argu);
+        if(symbolTable.size() == 3 && !symbolTable.peek().fields.containsKey(n.f0.tokenImage))
+        {
+            _ret.setField();
+        }
         return _ret;
     }
 
