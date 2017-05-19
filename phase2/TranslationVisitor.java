@@ -56,7 +56,7 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
     public String fieldToTmp(String fieldName)
     {
         String temp1 = newTmp("field");
-        Integer offset = classRecord.get(currentWorkingClass).get(fieldName) * 4 + 4;
+        Integer offset = getFieldOffset(fieldName) * 4 + 4;
         String o = Integer.toString(offset);
         printer.println(temp1 + " = [this+"+ o+']');
         return temp1;
@@ -202,6 +202,20 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
             return true;
         }
         return false;
+    }
+
+    private int getFieldOffset(String fieldName)
+    {
+        String currClass = currentWorkingClass;
+        while (!currClass.equals("Object"))
+        {
+            if (classRecord.get(currClass).containsKey(fieldName))
+            {
+                return classRecord.get(currClass).get(fieldName);
+            }
+            currClass = inheritanceMap.get(currClass);
+        }
+        return -1;
     }
 
     private Pair isMethodOfInheritance(String classType, String methodName, Vector < String > args) {
@@ -735,7 +749,9 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
         else
         {
             //calc offset
-            Integer offset = classRecord.get(currentWorkingClass).get(lhsIdent)*4 + 4;
+            //FIXME: vapor compiler error in line below
+            
+            Integer offset = getFieldOffset(lhsIdent)*4 + 4;
             String o = Integer.toString(offset);
             printer.println("[this+"+o+"] = "+rhsExpression);
         }
@@ -771,7 +787,7 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
         n.f6.accept(this, argu);
 
         //begin array bounds check
-        String goodCheck1 = newLabel("ll");
+        String goodCheck1 = newLabel("ArrAssignStatement");
         String s = newTmp("s");
         String indexOk = newTmp("ok");
         
@@ -790,11 +806,10 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
         String resultTmp = newTmp("r");
         printer.println(goodCheck2 + ": " + offsetTmp + " = MulS(" + arrayIndex + " 4)");
         printer.println(destTmp + " = Add(" + arrayStart +' '+ offsetTmp + ')');
-        printer.println(resultTmp + " = [" + destTmp + "+4]");
         //end array bounds check
         //
         //generate vapor code
-        printer.println('['+destTmp+"] = "+lhsExpression);
+        printer.println('['+destTmp+"+4] = "+lhsExpression);
         
         return _ret;
     }
@@ -935,9 +950,21 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
      * f2 -> PrimaryExpression()
      */
     public VisitorReturn visit(AndExpression n, VisitorReturn argu) {
-        //handled
+        // handle And operator with arithmetic
         VisitorReturn _ret = new VisitorReturn("Boolean");
-        _ret.addTmp(visitBinExpr(n.f0, n.f1, n.f2, argu, "And"));
+        //_ret.addTmp(visitBinExpr(n.f0, n.f1, n.f2, argu, "And"));
+        String retTmp = newTmp("");
+        String lhs = n.f0.accept(this,argu).getTmp();
+        String rhs = n.f2.accept(this,argu).getTmp();
+        String AndIs0 = newLabel("lhsIs0");
+        String endAnd = newLabel("endAnd");
+        printer.println(retTmp + " = Eq(" + rhs + ' ' + lhs + ")");
+        printer.println("if0 " + retTmp + " goto :" + AndIs0);
+        printer.println(retTmp + " = 1");
+        printer.println("goto :" + endAnd);
+        printer.println(AndIs0 + ": " + retTmp + " = 0");
+        printer.println(endAnd + ':');
+        _ret.addTmp(retTmp);
 
         return _ret;
     }
@@ -1014,7 +1041,7 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
 
         printer.println(s+" = ["+b+']');
 
-        String goodCheck1 = newLabel("ll");
+        String goodCheck1 = newLabel("ArrayLookup");
         String indexOk = newTmp("ok");
         printer.println(indexOk+" = LtS("+i+' '+s+')');
         printer.println("if "+indexOk+" goto :"+goodCheck1);
@@ -1261,13 +1288,14 @@ public class TranslationVisitor extends GJDepthFirst < VisitorReturn, VisitorRet
      * f1 -> Expression()
      */
     public VisitorReturn visit(NotExpression n, VisitorReturn argu) {
-        //handled
+        //FIXME: Handle Not with arithmetic
         VisitorReturn _ret = new VisitorReturn("Boolean");
         n.f0.accept(this, argu);
-        String temp1 = n.f1.accept(this, argu).getTmp();
-        String temp2 = newTmp("NotExpr");
-        printer.print(temp2 + " = Not(" + temp1 + ')');
-        _ret.addTmp(temp1);
+        String var = n.f1.accept(this, argu).getTmp();
+        String retTmp = newTmp("not");
+
+        printer.println(retTmp + " = Eq(" + var + " 0)");
+        _ret.addTmp(retTmp);
         return _ret;
     }
 
