@@ -1,0 +1,30 @@
+const vmt_Fac
+   :Fac.ComputeFac
+
+func Main()
+   t.0 = HeapAllocZ(4)
+   [t.0] = :vmt_Fac
+   if t.0 goto :_l.allocgood1
+   Error("null pointer")
+   _l.allocgood1:
+   t.1 = [t.0]
+   t.1 = [t.1+0]
+   t.2 = call t.1(t.0 10)
+   PrintIntS(t.2)
+   ret
+
+func Fac.ComputeFac(this num)
+   t.0 = LtS(num 1)
+   if0 t.0 goto :_l.else2
+      num_aux = 1
+      goto :_l.endIf3
+   _l.else2:
+      t.4 = Sub(num 1)
+      t.2 = [this]
+      t.2 = [t.2+0]
+      t.3 = call t.2(this t.4)
+      t.1 = MulS(num t.3)
+      num_aux = t.1
+   _l.endIf3:
+   ret num_aux
+
