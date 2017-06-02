@@ -10,6 +10,8 @@ import java.util.regex.Pattern;
 class VaporReturn {
     Vector<String> vars;
     private static final Pattern varPattern;
+    int outSize = 0;
+
     static {
        varPattern = Pattern.compile("[a-zA-Z_][a-zA-Z0-9_.]*");
     }
@@ -57,7 +59,7 @@ public class VaporVisitor<E extends Throwable> extends VInstr.VisitorPR<VaporRet
     }
 
     /*
-     * VOperand.get()   args        The arguments
+     * VOperand[]   args        The arguments
      * VVarRef      dest        Variable in which to store result
      * VBuiltIn.Op  op          The operation being performed (Add, Sub, etc)
      */
@@ -75,12 +77,15 @@ public class VaporVisitor<E extends Throwable> extends VInstr.VisitorPR<VaporRet
 
     /*
      * Vaddr<VFunction>     addr    The address of func being called
-     * VOperand.get()           args    The list of args passed into function
+     * VOperand[]           args    The list of args passed into function
      * VVarRef.Local        dest    The var used to store return value
      */
     public VaporReturn visit(VaporReturn args, VCall n)
     {
+
         VaporReturn vaporReturn = new VaporReturn();
+
+        vaporReturn.outSize = n.args.length;
         if (n.addr instanceof VAddr.Var)
         {
             vaporReturn.addVar(((VAddr.Var)n.addr).var.toString());

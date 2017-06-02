@@ -11,6 +11,69 @@ import java.io.InputStream;
 import java.io.FileInputStream;
 
 import java.util.*;
+import java.util.Collections.*;
+
+class RegisterPool 
+{
+    String[] tRegisters = {"$t8", "$t7", "$t6", "$t5", "$t4", "$t3", "$t2", "$t1", "$t0"};
+    String[] sRegisters = {"$s7", "$s6", "$s5", "$s4", "$s3", "$s2", "$s1", "$s0"};
+
+    Stack<String> tRegs;
+    Stack<String> sRegs;
+
+    int RegCount;
+    int maxSRegs = 0;
+
+    RegisterPool()
+    {
+        tRegs = new Stack<String>();
+        sRegs = new Stack<String>();
+        for (int i=0; i<8; ++i)
+        {
+            tRegs.push(tRegisters[i]);
+            sRegs.push(sRegisters[i]);
+        }
+        tRegs.push(tRegisters[8]);
+        RegCount = 17;
+    }
+
+    String getReg()
+    {
+        if(!tRegs.empty())
+        {
+            RegCount -= 1;
+            return tRegs.pop();
+        }
+        else if(!sRegs.empty())
+        {
+            RegCount -= 1;
+            String sreg = sRegs.pop();
+            maxSRegs = Math.max(maxSRegs, 8 - sRegs.size());
+            return sreg;
+        }
+        return "";
+    }
+
+    void freeRegister(String reg)
+    {
+       if(reg.charAt(1) == 't')
+       {
+            tRegs.push(reg);
+            ++RegCount;
+       } 
+       else if(reg.charAt(1) == 's')
+       {
+            sRegs.push(reg);
+            ++RegCount;
+       }
+       else{
+            System.err.println("ERROR: freed register is invalid");
+            System.exit(1);
+       }
+
+    }
+
+}
 
 class LivenessEntry
 {   
@@ -66,6 +129,114 @@ class EndComparator implements Comparator<LivenessEntry>
         return 0;
     }
 }
+
+class RegisterAllocation {
+    RegisterPool registerPool;
+    LinkedList<LivenessEntry> activeIntervals;
+    PriorityQueue<LivenessEntry> newIntervals;
+    Map<String,String> registerMap;
+    VFunction func;
+    int spillCount;
+
+    static final Comparator<LivenessEntry> startComparator;
+    static final Comparator<LivenessEntry> endComparator;
+
+    static {
+        startComparator = new StartComparator();
+        endComparator = new EndComparator();
+    }
+
+    RegisterAllocation(Map<String, LivenessEntry> livenessMap, VFunction func_) {
+        
+        registerPool = new RegisterPool();
+        activeIntervals = new LinkedList<LivenessEntry>();
+        newIntervals = new PriorityQueue<LivenessEntry>(startComparator);
+        registerMap = new HashMap<String,String>();
+        func = func_;
+        spillCount = 0; 
+        
+
+        for (Map.Entry<String,LivenessEntry> entry : livenessMap.entrySet())
+        {
+            String var = entry.getKey();
+            LivenessEntry le = entry.getValue();
+            le.var = var;
+            if (le.paramno == -1)
+            {
+                newIntervals.add(le);
+            }
+        }
+
+    }
+    
+    void linearScanRegisterAlloc()
+    {
+
+        LivenessEntry le = newIntervals.poll();
+        final int R = 17;
+        //for live interval i, in order of increasing start point
+        while (le != null)
+        {
+            expireOldIntervals(le);
+            if (activeIntervals.size() == R)
+            {
+                spillAtInterval(le);
+            }
+            else
+            {
+                String reg = registerPool.getReg(); //$t0
+                activeIntervals.add(le);
+                registerMap.put(le.var,reg);
+            }
+            le = newIntervals.poll();
+        }
+    }
+
+    void spillAtInterval(LivenessEntry newEntry)
+    {
+        LivenessEntry lastActive = activeIntervals.peekLast();
+        LivenessEntry spill;
+        if(lastActive.end > newEntry.end)
+        {
+            registerMap.put(newEntry.var, registerMap.get(lastActive.var));
+            activeIntervals.removeLast();
+            activeIntervals.addLast(newEntry);
+            Collections.sort(activeIntervals, endComparator); //FIXME: insertion sort instead
+
+            spill = lastActive;
+        }
+        else
+        {
+            spill = newEntry; 
+        }
+        registerMap.put(spill.var, "local[" + Integer.toString(spillCount) + "]");
+        spillCount++;
+    }
+
+    void expireOldIntervals(LivenessEntry newEntry)
+    {
+        LivenessEntry activeEntry = activeIntervals.peekFirst();
+        while (activeEntry != null && activeEntry.end < newEntry.start) {
+            String reg = registerMap.get(activeEntry.var);
+            registerPool.freeRegister(reg);
+            activeIntervals.removeFirst();
+
+            activeEntry = activeIntervals.peekFirst();
+        }
+    }
+}
+
+class LivenessReturn {
+        Map<String,LivenessEntry> livenessMap;
+        int maxOut;
+
+        LivenessReturn(Map<String,LivenessEntry> livenessMap_, int maxOut_)
+        {
+            livenessMap = livenessMap_;
+            maxOut = maxOut_;
+        }
+    }
+
 public class v2vm{
 
     static void printLivenessQueue(PriorityQueue<LivenessEntry> queue)
@@ -89,8 +260,10 @@ public class v2vm{
             System.out.format("%s: %d-%d (paramno=%d)\n", var, le.start, le.end, le.paramno);
         }
     }
+    
+    
 
-    public static Map<String,LivenessEntry> getLiveness(VFunction func) {
+    public static LivenessReturn getLiveness(VFunction func) {
     
         VaporVisitor<ProblemException> vaporVisitor = new VaporVisitor<ProblemException>();
         Map<String, LivenessEntry> livenessMap = new HashMap<String, LivenessEntry>();
@@ -100,7 +273,8 @@ public class v2vm{
         {
             params.add(param.ident);
         }
-
+        
+        int maxOut = 0;
         for (VInstr instr : func.body)
         {
 
@@ -114,7 +288,9 @@ public class v2vm{
                 e.printStackTrace();
                 break;
             }
-            
+            maxOut = Math.max(maxOut, instrRet.outSize);
+
+
             for (String var : instrRet.vars)
             {
                 LivenessEntry livenessEntry = new LivenessEntry(lineno, lineno);
@@ -124,8 +300,11 @@ public class v2vm{
                 livenessMap.put(var, livenessEntry);
             }
         }
-        return livenessMap;
+        return new LivenessReturn(livenessMap, maxOut);
     }
+
+    
+
 
 
 
@@ -144,36 +323,29 @@ public class v2vm{
         for (VFunction func : vp.functions)
         {
             // gets the liveness map of the current function
-            Map<String, LivenessEntry> livenessMap = v2vm.getLiveness(func);
+            LivenessReturn livenessReturn = v2vm.getLiveness(func);
+            Map<String, LivenessEntry> livenessMap = livenessReturn.livenessMap;
+            int maxOut = livenessReturn.maxOut;
             //printLiveness(livenessMap);
 
             // map our vars to registers/spill
-            Comparator<LivenessEntry> startComparator = new StartComparator();
-            PriorityQueue<LivenessEntry> startQueue = new PriorityQueue<LivenessEntry>(startComparator);
-            Comparator<LivenessEntry> endComparator = new EndComparator();
-            PriorityQueue<LivenessEntry> endQueue = new PriorityQueue<LivenessEntry>(endComparator);
-            
-            for (Map.Entry<String,LivenessEntry> entry : livenessMap.entrySet())
-            {
-                String var = entry.getKey();
-                LivenessEntry le = entry.getValue();
-                le.var = var;
-                if (le.paramno == -1)
-                {
-                    startQueue.add(le);
-                }
-            }
+            RegisterAllocation registerAllocation = new RegisterAllocation(livenessMap, func);
+            registerAllocation.linearScanRegisterAlloc();
            
-            System.out.format("-----%s-----\n", func.index);
-            printLivenessQueue(startQueue);
-
             // visit a second time, this time generating code
             // from computed spill/registers for our vars
-
-            
-            
-
-
+            VaporMGenerator<ProblemException> vaporMGenerator = new VaporMGenerator<ProblemException>(registerAllocation, maxOut);
+            for (VInstr instr : func.body)
+            {
+                try {
+                    instr.accept(new VaporMReturn(), vaporMGenerator);
+                } catch (ProblemException e)
+                {
+                    System.err.println("Error visiting instruction:");
+                    e.printStackTrace();
+                    break;
+                }
+            }
         }
     }
 
