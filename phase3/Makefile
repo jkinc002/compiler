@@ -1,8 +1,8 @@
 VaporVisitor: 
 	javac -cp ".:vapor-parser.jar" VaporVisitor.java
 
-v2vm: v2vm.java VaporVisitor
-	javac -cp ".:vapor-parser.jar" v2vm.java 
+V2VM: V2VM.java VaporVisitor
+	javac -cp ".:vapor-parser.jar" V2VM.java 
 
-run: v2vm 
-	java -cp ".:vapor-parser.jar" v2vm < Factorial.compiler.out
+run: V2VM 
+	java -cp ".:vapor-parser.jar" V2VM < Factorial.compiler.out

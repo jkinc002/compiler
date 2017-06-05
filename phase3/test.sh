@@ -1,16 +1,20 @@
 #!/bin/bash
 pwd
 
-rm hw2/*.class
-cp hw2/* ./
+#rm hw3/*.class
+#cp hw3/* ./
 #./TypecheckVisitor.java && javac ./VisitorReturn.java && javac ./TranslationVisitor.java  && 
-if javac ./J2V.java; then
-	rm *.class
-	rm -f hw2.tgz
-	tar -czvf hw2.tgz hw2
-	cd tests/Phase2Tester
-	./run SelfTestCases ../../hw2.tgz
-else
-	echo "Compilation failed"
-fi
+#if javac ./J2V.java; then
+cp VaporMGenerator.java hw3
+cp VaporVisitor.java hw3
+cp V2VM.java hw3
+
+rm *.class
+rm -f hw3.tgz
+tar -czvf hw3.tgz hw3
+cd Phase3Tester
+./run SelfTestCases ../hw3.tgz
+#else
+#	echo "Compilation failed"
+#fi
 
