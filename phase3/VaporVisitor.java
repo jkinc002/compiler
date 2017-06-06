@@ -11,6 +11,7 @@ class VaporReturn {
     Vector<String> vars;
     private static final Pattern varPattern;
     int outSize = 0;
+    Boolean isCall;
 
     static {
        varPattern = Pattern.compile("[a-zA-Z_][a-zA-Z0-9_.]*");
@@ -19,6 +20,7 @@ class VaporReturn {
     VaporReturn(int size)
     {
         vars = new Vector<String>(size);
+        isCall = false;
     }
 
     public void addVar(String var)
@@ -82,8 +84,9 @@ public class VaporVisitor<E extends Throwable> extends VInstr.VisitorPR<VaporRet
      */
     public VaporReturn visit(VaporReturn args, VCall n)
     {
-
+        
         VaporReturn vaporReturn = new VaporReturn();
+        vaporReturn.isCall = true;
 
         vaporReturn.outSize = n.args.length;
         if (n.addr instanceof VAddr.Var)
