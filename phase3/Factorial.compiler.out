@@ -20,8 +20,12 @@ func Fac.ComputeFac(this num)
       goto :_l.endIf3
    _l.else2:
       t.4 = Sub(num 1)
+      t.4 = t.4
       t.2 = [this]
       t.2 = [t.2+0]
+   _l.fake1:
+   _l.fake2:
+   _l.fake3:
       t.3 = call t.2(this t.4)
       t.1 = MulS(num t.3)
       num_aux = t.1
